@@ -12,17 +12,23 @@
     "smoke:extract": "node --experimental-strip-types src/smoke-extract.ts",
     "smoke:geocode": "node --experimental-strip-types src/smoke-geocode.ts",
     "smoke:interpret": "node --experimental-strip-types src/smoke-interpret.ts",
-    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode && npm run smoke:interpret"
+    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode && npm run smoke:interpret",
+    "api": "node --experimental-strip-types --env-file-if-exists=../../.env src/api.ts"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
+    "@hono/node-server": "^2.1.1",
+    "@libsql/client": "^0.18.0",
     "@reel/shared": "*",
     "double-metaphone": "^2.0.1",
+    "drizzle-orm": "^0.45.3",
     "groq-sdk": "^0.9.0",
+    "hono": "^4.13.8",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^5.7.0"
   }
 }
