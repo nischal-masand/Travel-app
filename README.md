@@ -17,10 +17,43 @@ that doesn't exist can't be resolved.
 ## Status
 
 - [x] **Phase 0** — monorepo scaffold
-- [x] **Phase 1** — Stage A: the evidence bundle (OCR unverified — see below)
-- [ ] Phase 2 — Stages B + C: extraction, reconciliation, geocoding
-- [ ] Phase 3 — Expo app: share sheet → inbox → evidence UI
+- [x] **Phase 1** — Stage A: the evidence bundle (resolve, frames, OCR, 2-pass ASR)
+- [x] **Phase 2** — Stages B + C: interpretation, quote guard, reconciliation, geocoding
+- [x] **Phase 3a** — HTTP API, SQLite storage, job queue, evidence endpoints
+- [ ] **Phase 3b** — the Expo app ← *resume here*
 - [ ] Phase 4 — map + collections · Phase 5 — web · Phase 6 — recipe profile · Phase 7 — deploy
+
+## Where to pick up
+
+The backend is complete and proven end to end on real Instagram reels. What's
+left is the app.
+
+```bash
+npm run api -w @reel/server          # start the server on :3000
+npm test -w @reel/server             # 4 suites, offline, no keys
+npm run capture -- "<url>"           # same pipeline, straight to the terminal
+```
+
+**Next: Phase 3b, the Expo app.**
+
+1. `apps/mobile` — Expo + Expo Router + TypeScript.
+2. `expo-share-intent` for the share sheet. It uses native code, so it needs a
+   **custom dev build** (EAS), not Expo Go — plan for one build cycle before
+   anything is testable on the phone.
+3. Screens: Inbox (poll `GET /captures`) → Capture card (`GET /captures/:id`) →
+   **Needs-check tray** (`GET /needs-check`), which shows `/frame?at=` and
+   `/clip?at=` so a name can be judged without reopening Instagram.
+4. Point the app at the server over your LAN IP or ngrok — `localhost` on the
+   phone is the phone.
+
+**Known rough edges, deliberately left:**
+
+- Countries and cities ("Japan", "Tokyo") become pins. They geocode fine, but a
+  country is not an itinerary stop — they probably belong as destination context.
+- Extraction is not deterministic even at temperature 0: two runs of one reel
+  gave 9 and 7 places. Fine for a tray you review; don't trust counts.
+- `ocr:compare` has never been run — Cloudflare/Moondream is unproven as a
+  fallback. The keys are in `.env`, so it is one command away.
 
 ## Setup
 
@@ -155,3 +188,48 @@ Findings from running actual saved Instagram posts, each now guarded by a test:
 - **On-screen text earns its place in the pipeline.** One capture's only source
   of "Beach Swing Yurari" was a frame — no caption mention, and no audio at all
   (licensed music). Drop OCR and that place disappears entirely.
+
+
+## HTTP API
+
+```
+POST /captures {url}          share a link -> 202 {id, status}
+GET  /captures                inbox, newest first
+GET  /captures/:id            status, places, mentions, tips, rejections
+GET  /needs-check             the tray: everything unverified
+GET  /map                     confirmed pins, deduped across captures
+GET  /captures/:id/frame?at=  the still at that second
+GET  /captures/:id/clip?at=   3 seconds of audio around it (404 if silent)
+```
+
+Processing is asynchronous: a share returns immediately and the app polls.
+The queue is in-process and serial — the work is bounded by free-tier rate
+limits, not CPU, so running captures in parallel would only make three providers
+throttle at once.
+
+## What running it on real reels taught us
+
+Every item below was found by running the pipeline, not by reasoning about it,
+and each is now pinned by a test.
+
+- **Google always answers something.** For an invented cafe it returns a real,
+  nearby, differently-named business. Accepting the top hit would launder a
+  hallucination into a verified pin, so every candidate is graded against the
+  queried name.
+- **Grading beats yes/no.** "Ultraman" was confirmed as "ULTRAMAN STREET" while
+  "Golden Gai" was rejected despite Google answering "Shinjuku Golden-Gai".
+  Clustering and geocoding now treat the same grade differently, because the
+  priors differ: two names from the same reel are probably one shop, a geocoder
+  offering a longer name is offering a guess.
+- **A hashtag is not prose.** "#goldengai" outranked the voiceover's "Golden
+  Gai" on source rank and handed Google an unresolvable string.
+- **Whisper's per-word confidence is useless here** — 0.90-0.91 across a whole
+  transcript. The pass-2 trigger is "a caption-spelled name is missing".
+- **Biasing can make transcripts worse** — it turned "Matching Planet" into
+  "Mac-shun Planet". Pass 2 is now kept only when it demonstrably recovers a name.
+- **Licensed music tracks are not transcribed.** Song lyrics in the evidence
+  would let Stage B cite a lyric as the source for a place nobody mentioned.
+- **Instagram serves DASH**, so a reel's video often has no audio track at all
+  and the speech is in a separate stream.
+- **Gemini's free quota is per model**, not per project — an exhausted model is
+  skipped, never retried.
