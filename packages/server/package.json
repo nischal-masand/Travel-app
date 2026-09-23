@@ -8,11 +8,14 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "node --experimental-strip-types src/smoke.ts",
-    "ocr:compare": "node --experimental-strip-types --env-file-if-exists=../../.env src/ocr-compare.ts"
+    "ocr:compare": "node --experimental-strip-types --env-file-if-exists=../../.env src/ocr-compare.ts",
+    "smoke:extract": "node --experimental-strip-types src/smoke-extract.ts",
+    "test": "npm run smoke && npm run smoke:extract"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
     "@reel/shared": "*",
+    "double-metaphone": "^2.0.1",
     "groq-sdk": "^0.9.0",
     "zod": "^4.0.0"
   },
