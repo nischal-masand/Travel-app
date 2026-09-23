@@ -74,15 +74,19 @@ export interface RetryOpts {
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOpts = {}): Promise<T> {
   const { attempts = 4, baseMs = 2000, label = 'request', model, onRetry } = opts
   let last: unknown
+  let tried = 0
+  let gaveUpEarly = false
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    tried = attempt
     try {
       return await fn()
     } catch (err) {
       last = err
       // Escalate immediately: this is not a wait-and-see condition.
       if (isQuotaExhausted(err)) throw new QuotaExhaustedError(messageOf(err), model ?? label)
-      if (attempt === attempts || !isRetryable(err)) break
+      if (!isRetryable(err)) { gaveUpEarly = true; break }
+      if (attempt === attempts) break
       // Exponential backoff with jitter, so parallel calls don't retry in lockstep.
       const wait = Math.round(baseMs * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5))
       onRetry?.(attempt, wait, err)
@@ -90,6 +94,11 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOpts = {}): 
     }
   }
 
+  // Say what actually happened. "failed after 3 attempts" for a single 400 that
+  // was never retried sends you hunting a flaky network instead of a bad request.
+  const how = gaveUpEarly
+    ? `failed (not retryable${tried > 1 ? `, after ${tried} attempts` : ''})`
+    : `failed after ${tried} attempt${tried === 1 ? '' : 's'}`
   const detail = last instanceof Error ? last.message : String(last)
-  throw new Error(`${label} failed after ${attempts} attempts: ${detail}`)
+  throw new Error(`${label} ${how}: ${detail}`)
 }
