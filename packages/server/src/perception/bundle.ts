@@ -4,7 +4,7 @@ import { EvidenceBundle } from '@reel/shared'
 import { resolverFor } from '../resolvers/index.ts'
 import { captureIdFor, workdirFor } from '../lib/workdir.ts'
 import { extractAudio, extractFrames, hasAudioStream, probeDuration, type Frame } from './media.ts'
-import { readOnScreenText } from './ocr.ts'
+import { readOnScreenText } from './ocr/index.ts'
 import { transcribeBiased, transcribeCold } from './asr.ts'
 import { buildVocabulary, chooseTranscript, secondPassReason } from './vocabulary.ts'
 
@@ -75,11 +75,11 @@ export async function buildEvidence(url: string, onProgress: Progress = () => {}
   const [ocr, pass1] = await Promise.all([
     frames.length
       ? readOnScreenText(frames, retryNote('ocr'))
-      : Promise.resolve({ texts: [], failedFrames: 0 }),
+      : Promise.resolve({ texts: [], failedFrames: 0, provider: null }),
     audioPath ? transcribeCold(audioPath, retryNote('asr:1')) : Promise.resolve(null),
   ])
   const onScreenText = ocr.texts
-  onProgress('ocr', `${onScreenText.length} text regions${ocr.failedFrames ? ` (${ocr.failedFrames} frames unread)` : ''}`)
+  onProgress('ocr', `${onScreenText.length} regions via ${ocr.provider ?? 'none'}${ocr.failedFrames ? ` (${ocr.failedFrames} frames unread)` : ''}`)
   if (pass1) onProgress('asr:1', `${pass1.words.length} words`)
 
   // --- A2 pass 2: biased by everything that spells correctly -----------------
@@ -113,6 +113,7 @@ export async function buildEvidence(url: string, onProgress: Progress = () => {}
     transcriptPass1,
     onScreenText,
     ocrFailedFrames: ocr.failedFrames,
+    ocrProvider: ocr.provider,
     audioSource,
     skippedAsrReason,
     biasVerdict,

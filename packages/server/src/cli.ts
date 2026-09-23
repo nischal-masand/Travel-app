@@ -109,7 +109,7 @@ function report(bundle: EvidenceBundle) {
   if (bundle.caption.hashtags.length) console.log(C.dim(`\nhashtags: ${bundle.caption.hashtags.join(' ')}`))
   if (bundle.caption.locationTag) console.log(C.dim(`location tag: ${bundle.caption.locationTag}`))
 
-  heading(`ON-SCREEN TEXT  (${bundle.onScreenText.length} regions)`)
+  heading(`ON-SCREEN TEXT  (${bundle.onScreenText.length} regions via ${bundle.ocrProvider ?? 'none'})`)
   if (bundle.ocrFailedFrames > 0) {
     console.log(C.red(`! ${bundle.ocrFailedFrames} frames could not be read (provider unavailable).`))
     console.log(C.red('  This is a PARTIAL read — do not judge "no text on screen" from it.'))

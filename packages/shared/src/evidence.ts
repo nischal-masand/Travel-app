@@ -74,6 +74,8 @@ export const EvidenceBundle = z.object({
    * source, so a partial read has to be visible to whoever judges the output.
    */
   ocrFailedFrames: z.number().int().nonnegative().default(0),
+  /** Which OCR backend produced the text, so a quality change is traceable. */
+  ocrProvider: z.string().nullable().default(null),
 
   /** Where the transcribed audio came from, for debugging silent captures. */
   audioSource: z.enum(['video', 'separate', 'none']).default('none'),
