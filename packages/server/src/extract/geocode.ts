@@ -1,6 +1,6 @@
 import type { Confidence, PlaceStatus, SourceType } from '@reel/shared'
 import { withRetry } from '../lib/retry.ts'
-import { samePlace } from './reconcile.ts'
+import { matchStrength, type MatchStrength } from './reconcile.ts'
 import { normalizeForMatch } from './verify.ts'
 
 /**
@@ -59,6 +59,8 @@ export interface GeocodeHit {
   /** Google's own spelling, which may differ from the reel's. */
   canonicalName: string
   address: string | null
+  /** How well Google's name matched what we asked for. Drives status. */
+  match: MatchStrength
   types?: string[]
 }
 
@@ -145,7 +147,7 @@ interface SearchTextResponse {
   }>
 }
 
-function toHit(place: NonNullable<SearchTextResponse['places']>[number]): GeocodeHit | null {
+function toHit(place: NonNullable<SearchTextResponse['places']>[number]): Omit<GeocodeHit, 'match'> | null {
   const placeId = place.id
   const canonicalName = place.displayName?.text?.trim()
   const lat = place.location?.latitude
@@ -249,20 +251,30 @@ async function lookup(
   // drops empty repeated fields, so `{}` comes back for a name nothing matches.
   const candidates = response.places ?? []
 
+  // Google always answers something, and for an invented cafe that something is
+  // a real, nearby, differently-named business. Accepting it would launder a
+  // hallucination into a verified pin with coordinates.
+  //
+  // But rejecting outright is also wrong: Google answers "Shinjuku Golden-Gai"
+  // for "Golden Gai", which is plainly the same district. So grade the match
+  // and keep the best one — a weak match still reaches you, flagged, rather
+  // than being thrown away or dressed up as confirmed.
+  let best: GeocodeHit | null = null
+
   for (const candidate of candidates.slice(0, MAX_CANDIDATES)) {
     const hit = toHit(candidate)
     if (!hit) continue
-    // The gate. Google always answers something, and for an invented café that
-    // something is a real, nearby, differently-named business. Accepting it
-    // would launder a hallucination into a verified pin with coordinates.
-    //
-    // samePlace is the same comparison that decided two mentions were one
-    // place, so a name Google spells slightly differently ("Kelingking Beach"
-    // for "Kelingking") passes for the same reasons it passed in reconcile.
-    if (!samePlace(name, hit.canonicalName)) continue
-    return hit
+
+    const match = matchStrength(name, hit.canonicalName)
+    if (match === 'none') continue
+    if (match === 'exact' || match === 'strong') return { ...hit, match }
+    // 'prefix'/'loose' — one shared token, like "Ultraman" answered with
+    // "ULTRAMAN STREET". Hold it in case nothing better turns up, but it will
+    // reach the user as needs_check rather than as a confirmed pin.
+    best ??= { ...hit, match }
   }
 
+  return best
   return null
 }
 
@@ -287,6 +299,9 @@ export function confidenceFor(
   hit: GeocodeHit | null,
 ): Confidence {
   if (!hit) return 'low'
+  // A loose match is a suggestion, not a verification. Two witnesses agreeing on
+  // a name does not make Google's guess at that name right.
+  if (hit.match === 'loose' || hit.match === 'prefix') return 'low'
   return new Set(cluster.sources).size >= 2 ? 'high' : 'medium'
 }
 
@@ -306,6 +321,20 @@ export function locationFrom(
   hit: GeocodeHit | null,
 ): PlaceLocation {
   const confidence = confidenceFor(cluster, hit)
+  // A loose hit keeps its coordinates — showing you the candidate is more use
+  // than hiding it — but it is NOT confirmed. You decide whether Google
+  // understood the name.
+  if (hit && (hit.match === 'loose' || hit.match === 'prefix')) {
+    return {
+      status: 'needs_check',
+      confidence,
+      placeId: hit.placeId,
+      lat: hit.lat,
+      lng: hit.lng,
+      canonicalName: hit.canonicalName,
+      address: hit.address,
+    }
+  }
   if (!hit) {
     // Everything stays null. A place we could not verify must not carry
     // coordinates, because the UI would draw them on a map as fact.

@@ -11,7 +11,8 @@
     "ocr:compare": "node --experimental-strip-types --env-file-if-exists=../../.env src/ocr-compare.ts",
     "smoke:extract": "node --experimental-strip-types src/smoke-extract.ts",
     "smoke:geocode": "node --experimental-strip-types src/smoke-geocode.ts",
-    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode"
+    "smoke:interpret": "node --experimental-strip-types src/smoke-interpret.ts",
+    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode && npm run smoke:interpret"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

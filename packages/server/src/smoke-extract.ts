@@ -140,6 +140,18 @@ check('cluster records which source types named it',
 check('cluster keeps the earliest timestamp for the frame/clip evidence',
   penida.firstSeconds === 4, String(penida.firstSeconds))
 
+// A hashtag is caption-sourced but is not prose. Observed live: "#goldengai"
+// outranked the voiceover's "Golden Gai" on source alone, handing the geocoder
+// a string Google cannot resolve and turning a real bar district into an
+// unverified pin.
+const tag = clusterMentions([
+  mention({ rawName: 'goldengai', sourceType: 'caption' }),
+  mention({ rawName: 'Golden Gai', sourceType: 'transcript', sourceSeconds: 5 }),
+])
+check('a spaced, capitalised name beats a squashed hashtag',
+  tag[0]?.name === 'Golden Gai', tag[0]?.name ?? '')
+check('...and they are still one place, not two', tag.length === 1)
+
 // Longer names geocode better: "Mandarake Shibuya" resolves, "Mandarake" is ambiguous.
 const shibuya = clusterMentions([
   mention({ rawName: 'Mandarake', sourceType: 'caption' }),

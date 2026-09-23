@@ -113,6 +113,8 @@ export const CaptureResult = z.object({
   places: z.array(Place).default([]),
   /** Tips not attached to any single place. */
   generalTips: z.array(Tip).default([]),
+  /** Facts about the trip as a whole rather than one place. */
+  generalFacts: z.array(Fact).default([]),
   /** Items the model produced whose quote failed the check. Kept for debugging. */
   rejected: z.array(z.object({ reason: z.string(), item: z.unknown() })).default([]),
 })

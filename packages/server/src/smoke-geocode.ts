@@ -91,8 +91,12 @@ async function messageFrom(fn: () => Promise<unknown>): Promise<string> {
 const cluster = (sources: SourceType[]) => ({ name: 'Kelingking Beach', sources })
 const hit: GeocodeHit = {
   placeId: 'ChIJtest', lat: -8.75, lng: 115.47,
-  canonicalName: 'Kelingking Beach', address: 'Bali',
+  canonicalName: 'Kelingking Beach', address: 'Bali', match: 'exact',
 }
+/** A single shared token — "Ultraman" answered with "ULTRAMAN STREET". */
+const looseHit: GeocodeHit = { ...hit, canonicalName: 'Kelingking Street', match: 'loose' }
+/** Google offering a longer name: "Ultraman" -> "ULTRAMAN STREET". */
+const prefixHit: GeocodeHit = { ...hit, canonicalName: 'Kelingking Beach Club', match: 'prefix' }
 
 // --- the request ------------------------------------------------------------
 console.log('\n\x1b[1mREQUEST\x1b[0m')
@@ -288,6 +292,25 @@ check('repeated source types do not inflate the tier',
     unresolved.status === 'needs_check' && unresolved.confidence === 'low',
     `${unresolved.status}/${unresolved.confidence}`)
 }
+
+// --- graded matching -------------------------------------------------------
+// Observed live: Google answered "ULTRAMAN STREET" for "Ultraman" and the
+// pipeline reported it confirmed, while "Golden Gai" was rejected outright
+// because Google prefixed it as "Shinjuku Golden-Gai". Both were wrong.
+console.log('\n\x1b[1mGRADED MATCHING\x1b[0m')
+
+check('a loose match is never presented as confirmed',
+  locationFrom(cluster(['caption', 'transcript']), looseHit).status === 'needs_check',
+  locationFrom(cluster(['caption', 'transcript']), looseHit).status)
+check('a loose match is low confidence however many witnesses agreed',
+  confidenceFor(cluster(['caption', 'transcript', 'onScreenText']), looseHit) === 'low')
+check('a loose match keeps its coordinates so you can judge it',
+  locationFrom(cluster(['caption']), looseHit).lat === -8.75)
+check('an exact match is still confirmed',
+  locationFrom(cluster(['caption']), hit).status === 'confirmed')
+check('a prefix match is needs_check too — Google offering a longer name is a guess',
+  locationFrom(cluster(['caption', 'transcript']), prefixHit).status === 'needs_check')
+check('a prefix match is low confidence', confidenceFor(cluster(['caption', 'transcript']), prefixHit) === 'low')
 
 console.log(failures === 0 ? '\n\x1b[32mall good\x1b[0m' : `\n\x1b[31m${failures} failed\x1b[0m`)
 process.exit(failures === 0 ? 0 : 1)

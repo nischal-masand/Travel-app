@@ -1,5 +1,7 @@
 import type { EvidenceBundle } from '@reel/shared'
 import { buildEvidence } from './perception/bundle.ts'
+import { extract } from './extract/index.ts'
+import type { CaptureResult } from '@reel/shared'
 import { biasEffect } from './perception/vocabulary.ts'
 import { resolverFor } from './resolvers/index.ts'
 import { captureIdFor, workdirFor } from './lib/workdir.ts'
@@ -15,10 +17,49 @@ const C = {
   red: (s: string) => `\x1b[31m${s}\x1b[0m`,
 }
 
+function reportResult(r: CaptureResult) {
+  heading(`PLACES  (${r.places.length})`)
+  if (r.destination) console.log(C.dim(`destination: ${r.destination}
+`))
+  if (!r.places.length) console.log(C.dim('(none — nothing in this capture named a place)'))
+
+  for (const p of r.places) {
+    const badge = p.status === 'confirmed'
+      ? C.green(`confirmed/${p.confidence}`)
+      : C.yellow(`needs check/${p.confidence}`)
+    console.log(`${C.bold(p.name)}  ${badge}  ${C.dim(p.kind)}`)
+    if (p.canonicalName && p.canonicalName !== p.name) console.log(C.dim(`  google: ${p.canonicalName}`))
+    if (p.address) console.log(C.dim(`  ${p.address}`))
+    if (p.lat !== null) console.log(C.dim(`  ${p.lat.toFixed(5)}, ${p.lng!.toFixed(5)}`))
+
+    // The audit trail: who said this, in what words, and when in the video.
+    for (const m of p.mentions) {
+      const at = m.sourceSeconds !== null ? C.yellow(ts(m.sourceSeconds)) : C.dim('  --  ')
+      console.log(`  ${at} ${C.dim(m.sourceType.padEnd(12))} "${m.sourceQuote.slice(0, 80)}"`)
+    }
+    for (const t of p.tips) console.log(`    ${C.cyan(t.kind)}: ${t.text}`)
+    for (const f of p.facts) console.log(`    ${C.cyan(f.label)}: ${f.value}`)
+    console.log()
+  }
+
+  if (r.generalTips.length || r.generalFacts.length) {
+    heading('NOT TIED TO ONE PLACE')
+    for (const t of r.generalTips) console.log(`  ${C.cyan(t.kind)}: ${t.text}`)
+    for (const f of r.generalFacts) console.log(`  ${C.cyan(f.label)}: ${f.value}`)
+  }
+
+  // The guard firing is the most important thing on screen when it happens.
+  if (r.rejected.length) {
+    heading(`DROPPED BY THE QUOTE CHECK  (${r.rejected.length})`)
+    console.log(C.dim('The model produced these but could not back them with the evidence.'))
+    for (const x of r.rejected) console.log(`  ${C.red('x')} ${x.reason}`)
+  }
+}
+
 function keysNeededFor(url: string, resolveOnly: boolean): string[] {
   // --resolve-only stops before any model call, so it needs no AI keys. That
   // makes it the cheap way to debug a broken resolver without burning credits.
-  const needed = resolveOnly ? [] : ['GEMINI_API_KEY', 'GROQ_API_KEY']
+  const needed = resolveOnly ? [] : ['GEMINI_API_KEY', 'GROQ_API_KEY', 'GOOGLE_MAPS_API_KEY']
   if (/instagram\.com/i.test(url)) needed.push('APIFY_TOKEN')
   return needed
 }
@@ -156,6 +197,7 @@ async function main() {
   const args = process.argv.slice(2)
   const jsonOnly = args.includes('--json')
   const resolveOnly = args.includes('--resolve-only')
+  const evidenceOnly = args.includes('--evidence-only')
   const url = args.find((a) => !a.startsWith('--'))
 
   if (!url) {
@@ -163,6 +205,7 @@ async function main() {
 
   <url>           an Instagram reel/post, YouTube video, YouTube Short, or TikTok
   --resolve-only  stop after fetching: no model calls, no credits spent
+  --evidence-only stop after Stage A: no extraction, no geocoding
   --json          print the raw evidence bundle instead of the readable report`)
     process.exit(1)
   }
@@ -185,8 +228,18 @@ Copy .env.example to .env and fill these in. All three have free tiers:
     process.stderr.write(`${C.dim(`[${((Date.now() - started) / 1000).toFixed(1)}s]`)} ${step}${detail ? ` ${C.dim(detail)}` : ''}\n`)
   })
 
-  if (jsonOnly) console.log(JSON.stringify(bundle, null, 2))
-  else report(bundle)
+  if (jsonOnly && evidenceOnly) { console.log(JSON.stringify(bundle, null, 2)); return }
+  if (!jsonOnly) report(bundle)
+  if (evidenceOnly) return
+
+  const result = await extract(bundle, {
+    onProgress: (step, detail) =>
+      process.stderr.write(`${C.dim(`[${((Date.now() - started) / 1000).toFixed(1)}s]`)} ${step}${detail ? ` ${C.dim(detail)}` : ''}
+`),
+  })
+
+  if (jsonOnly) console.log(JSON.stringify(result, null, 2))
+  else reportResult(result)
 }
 
 /** Node wraps network failures as a bare "fetch failed"; the real reason sits
