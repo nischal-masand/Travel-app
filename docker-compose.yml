@@ -1,0 +1,21 @@
+# Postgres for Phase 2 onwards. Phase 1 (perception) runs entirely from the CLI
+# and needs no database, so you can leave this alone for now.
+#
+# Docker isn't installed on this machine yet. Two options when you reach Phase 2:
+#   a) install Docker Desktop and `docker compose up -d`
+#   b) skip Docker entirely and use a free hosted Postgres (Neon, neon.tech),
+#      then just set DATABASE_URL in .env — nothing else changes.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reeltrip
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

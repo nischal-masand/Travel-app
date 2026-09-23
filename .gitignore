@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+
+# pipeline working dirs
+.work/
+out/
+
+# os
+Thumbs.db
+.DS_Store
