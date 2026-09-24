@@ -16,6 +16,7 @@ import {
   buildPrompt, interpret, locateInTranscript, locateOnScreen, ModelReplyError,
   type ModelCall, type ModelRequest,
 } from './extract/interpret.ts'
+import { locateMention } from './extract/interpret.ts'
 import { verifyMentions } from './extract/verify.ts'
 
 let failures = 0
@@ -142,10 +143,39 @@ check('the stamped sourceType is what makes B2 able to reject a misattribution',
 console.log('\n\x1b[1mTIMESTAMPS FROM WORD TIMINGS\x1b[0m')
 
 const heard = out.mentions.find((m) => m.rawName === 'noosa peneeda')
-check('transcript sourceSeconds comes from the ASR word timings',
-  heard?.sourceSeconds === 0.9, `got ${heard?.sourceSeconds} (expected 0.9, the "boat" token)`)
-check('asrConfidence is the weakest word in the matched span',
+// Timed to the NAME, not the quote. The quote is "boat to noosa peneeda" and
+// starts at 0.9s ("boat"); the name starts at 1.6s. A clip centred on 0.9 would
+// play "we took the boat" and end before the place was ever said.
+check('a mention is timed to where its NAME is spoken, not where its quote starts',
+  heard?.sourceSeconds === 1.6, `got ${heard?.sourceSeconds} (expected 1.6, the "noosa" token)`)
+check('asrConfidence is the weakest word of the NAME',
   heard?.asrConfidence === 0.41, String(heard?.asrConfidence))
+
+// The real quote that exposed this: the name sits at the END of a long quote.
+const long: TranscriptWord[] = [
+  'right', 'here', 'in', 'the', 'neighborhood', "we're", 'in,', 'ebisu,', 'is', 'janai', 'coffee.',
+].map((word, i) => ({ word, startMs: 30000 + i * 400, endMs: 30000 + i * 400 + 300, confidence: 0.9 }))
+check('a name at the end of a long quote is timed to the name, not the quote start',
+  locateMention(long, "Right here in the neighborhood we're in, Ebisu, is Janai Coffee", 'Janai Coffee').seconds === 33.6,
+  String(locateMention(long, "Right here in the neighborhood we're in, Ebisu, is Janai Coffee", 'Janai Coffee').seconds))
+
+// Said twice: the cited occurrence is the one inside the quote.
+const twice: TranscriptWord[] = [
+  'ebisu', 'is', 'great', 'later', 'we', 'went', 'back', 'to', 'ebisu', 'for', 'dinner',
+].map((word, i) => ({ word, startMs: i * 1000, endMs: i * 1000 + 500, confidence: 0.9 }))
+check('a name said twice is timed to the occurrence inside its quote',
+  locateMention(twice, 'went back to ebisu for dinner', 'ebisu').seconds === 8,
+  String(locateMention(twice, 'went back to ebisu for dinner', 'ebisu').seconds))
+
+check('falls back to the quote start when the name is not in the audio as given',
+  locateMention(words, 'boat to noosa peneeda', 'Nusa Penida').seconds === 0.9,
+  String(locateMention(words, 'boat to noosa peneeda', 'Nusa Penida').seconds))
+
+// ASR tokenising the FRONT of a quote differently used to lose it entirely,
+// because a partial match had to start at the quote's first word.
+check('a quote whose opening words ASR split differently is still located',
+  locateInTranscript(words, "we've took the boat to noosa").seconds === 0.3,
+  String(locateInTranscript(words, "we've took the boat to noosa").seconds))
 
 check('locates a quote that starts mid-sentence',
   locateInTranscript(words, 'walked down to kelingking').seconds === 3.1,

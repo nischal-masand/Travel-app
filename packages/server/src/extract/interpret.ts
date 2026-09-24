@@ -169,48 +169,97 @@ export interface Located {
   confidence: number | null
 }
 
+interface Run { start: number; count: number }
+
+/**
+ * Longest contiguous run of `wanted` tokens inside `seq`, at ANY alignment —
+ * the run may begin mid-quote. Requiring it to start at the quote's first word
+ * made location brittle: ASR splitting "we're" into two tokens at the front of a
+ * quote was enough to lose the timestamp entirely.
+ */
+function longestRun(seq: string[], wanted: string[], from = 0, to = seq.length): Run | null {
+  let best: Run | null = null
+  for (let i = from; i < to; i++) {
+    for (let j = 0; j < wanted.length; j++) {
+      let count = 0
+      while (i + count < to && j + count < wanted.length && seq[i + count] === wanted[j + count]) count++
+      if (count > (best?.count ?? 0)) best = { start: i, count }
+    }
+    if (best && best.count === wanted.length) break
+  }
+  return best
+}
+
+/** Exact, full occurrence of `wanted` within [from, to). */
+function exactRun(seq: string[], wanted: string[], from = 0, to = seq.length): Run | null {
+  if (wanted.length === 0) return null
+  for (let i = from; i + wanted.length <= to; i++) {
+    if (wanted.every((t, j) => seq[i + j] === t)) return { start: i, count: wanted.length }
+  }
+  return null
+}
+
+function located(words: TranscriptWord[], run: Run): Located {
+  const span = words.slice(run.start, run.start + run.count)
+  const scores = span.map((w) => w.confidence).filter((c): c is number => c !== null)
+  return {
+    seconds: span[0]!.startMs / 1000,
+    confidence: scores.length > 0 ? Math.min(...scores) : null,
+  }
+}
+
 /**
  * Find where a quote was spoken, by walking the ASR word list.
  *
  * `transcript.text` and `transcript.words` come out of the same response but are
  * not character-aligned, so a string offset into the text would not survive
- * punctuation. Token matching does, and it degrades usefully: a partial match
- * still pins the start of the span, which is what the UI seeks the video to.
+ * punctuation. Token matching does. Used as-is for tips and facts, where the
+ * whole statement is the evidence.
  */
 export function locateInTranscript(words: TranscriptWord[], quote: string): Located {
   const miss: Located = { seconds: null, confidence: null }
   const wanted = tokensOf(quote)
-  if (wanted.length === 0) return miss
+  const usable = words.filter((w) => wordToken(w).length > 0)
+  if (wanted.length === 0 || usable.length === 0) return miss
 
-  const seq = words
-    .map((word) => ({ token: wordToken(word), word }))
-    .filter((entry) => entry.token.length > 0)
-  if (seq.length === 0) return miss
-
-  let bestStart = -1
-  let bestCount = 0
-  for (let i = 0; i < seq.length; i++) {
-    let count = 0
-    while (count < wanted.length && i + count < seq.length && seq[i + count]!.token === wanted[count]) count++
-    if (count > bestCount) {
-      bestCount = count
-      bestStart = i
-    }
-    if (bestCount === wanted.length) break
-  }
-
+  const run = longestRun(usable.map(wordToken), wanted)
   // One matching token is only trustworthy when the quote IS one token. Below
   // that bar a stray "the" would happily place a quote anywhere in the video.
-  const enough = bestCount === wanted.length || bestCount >= 2
-  if (!enough || bestStart < 0) return miss
+  if (!run || !(run.count === wanted.length || run.count >= 2)) return miss
+  return located(usable, run)
+}
 
-  const span = seq.slice(bestStart, bestStart + bestCount).map((entry) => entry.word)
-  const scores = span.map((w) => w.confidence).filter((c): c is number => c !== null)
+/**
+ * Find the moment a place's NAME was spoken — not where its quote begins.
+ *
+ * The difference is the whole point of the evidence clip. A real quote was
+ * "Right here in the neighborhood we're in, Ebisu, is Janai Coffee": timed from
+ * its first word, a three-second clip plays "Right here in the neighb—" and
+ * stops before the name it was meant to prove. So the name is searched for
+ * inside the quote's span first (the occurrence the model actually cited), then
+ * anywhere in the transcript, and only failing both does it fall back to the
+ * quote's start.
+ *
+ * Confidence is likewise the weakest word of the NAME: a shaky "the" nearby
+ * says nothing about whether the place was heard correctly.
+ */
+export function locateMention(words: TranscriptWord[], quote: string, name: string): Located {
+  const usable = words.filter((w) => wordToken(w).length > 0)
+  if (usable.length === 0) return { seconds: null, confidence: null }
+  const seq = usable.map(wordToken)
+  const nameTokens = tokensOf(name)
 
-  return {
-    seconds: span[0]!.startMs / 1000,
-    confidence: scores.length > 0 ? Math.min(...scores) : null,
-  }
+  const quoteTokens = tokensOf(quote)
+  const quoteRun = longestRun(seq, quoteTokens)
+  const quoteOk = quoteRun && (quoteRun.count === quoteTokens.length || quoteRun.count >= 2)
+
+  const inQuote = quoteOk
+    ? exactRun(seq, nameTokens, quoteRun!.start, quoteRun!.start + quoteRun!.count)
+    : null
+  const anywhere = inQuote ?? exactRun(seq, nameTokens)
+  if (anywhere) return located(usable, anywhere)
+
+  return locateInTranscript(words, quote)
 }
 
 /**
@@ -464,8 +513,12 @@ export async function interpretSource(
   const reply = parseReply(sourceType, await call(buildPrompt(sourceType, profile, text), onRetry))
 
   const words = sourceType === 'transcript' ? bundle.transcript?.words ?? [] : []
-  const locate = (quote: string): Located => {
-    if (sourceType === 'transcript') return locateInTranscript(words, quote)
+  const locate = (quote: string, name?: string): Located => {
+    if (sourceType === 'transcript') {
+      // A mention is timed to its NAME, so the clip actually contains it; a tip
+      // or fact is timed to its whole statement.
+      return name ? locateMention(words, quote, name) : locateInTranscript(words, quote)
+    }
     if (sourceType === 'onScreenText') {
       return { seconds: locateOnScreen(bundle.onScreenText, quote), confidence: null }
     }
@@ -477,7 +530,7 @@ export async function interpretSource(
       .map((m) => ({ rawName: m.rawName.trim(), sourceQuote: m.sourceQuote.trim() }))
       .filter((m) => m.rawName.length > 0 && m.sourceQuote.length > 0)
       .map((m) => {
-        const at = locate(m.sourceQuote)
+        const at = locate(m.sourceQuote, m.rawName)
         return {
           rawName: m.rawName,
           sourceQuote: m.sourceQuote,

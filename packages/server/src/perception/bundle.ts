@@ -3,6 +3,7 @@ import path from 'node:path'
 import { EvidenceBundle } from '@reel/shared'
 import { resolverFor } from '../resolvers/index.ts'
 import { captureIdFor, workdirFor } from '../lib/workdir.ts'
+import { mediaRef } from '../lib/urls.ts'
 import { extractAudio, extractFrames, hasAudioStream, probeDuration, type Frame } from './media.ts'
 import { readOnScreenText } from './ocr/index.ts'
 import { transcribeBiased, transcribeCold } from './asr.ts'
@@ -17,7 +18,9 @@ export type Progress = (step: string, detail?: string) => void
  * and no model is asked to conclude anything. That separation is the whole
  * reason the quote check downstream can actually catch an invented café.
  */
-export async function buildEvidence(url: string, onProgress: Progress = () => {}): Promise<EvidenceBundle> {
+export async function buildEvidence(input: string, onProgress: Progress = () => {}): Promise<EvidenceBundle> {
+  // The CLI passes whatever was pasted; the resolver gets the clean form.
+  const url = mediaRef(input).url
   const captureId = captureIdFor(url)
   const workdir = await workdirFor(captureId)
 

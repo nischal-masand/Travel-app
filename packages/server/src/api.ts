@@ -12,6 +12,7 @@ import { kindFromTypes } from './extract/index.ts'
 import type { CorrectPlaceRequest } from '@reel/shared'
 import { enqueue, queueDepth } from './jobs.ts'
 import { captureIdFor } from './lib/workdir.ts'
+import { mediaRef } from './lib/urls.ts'
 import { resolverFor } from './resolvers/index.ts'
 import { clipAt, frameAt } from './perception/evidence-media.ts'
 
@@ -48,9 +49,12 @@ app.post('/captures', async (c) => {
     }, 400)
   }
 
-  const id = captureIdFor(url)
-  await createCapture({ id, url, profile: body.profile })
-  enqueue(id, url, body.profile)
+  // Store and process the clean form, so the resolver never sees tracking
+  // params and the inbox shows one URL per reel however it was shared.
+  const clean = mediaRef(url).url
+  const id = captureIdFor(clean)
+  await createCapture({ id, url: clean, profile: body.profile })
+  enqueue(id, clean, body.profile)
 
   // 202: accepted, not finished. The app polls GET /captures/:id.
   return c.json({ id, status: 'queued' }, 202)

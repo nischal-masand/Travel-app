@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { CaptureResult, EvidenceBundle, Fact, Place, PlaceKind, Tip } from '@reel/shared'
 import { CaptureResult as CaptureResultSchema } from '@reel/shared'
-import { interpret, type OnRetry, type Profile } from './interpret.ts'
+import { interpret, type ModelCall, type OnRetry, type Profile } from './interpret.ts'
 import { verifyMentions, verifyQuotes, type Rejection } from './verify.ts'
 import { attachToClusters, clusterMentions, samePlace, type Cluster } from './reconcile.ts'
 import { geocode, locationFrom, type GeocodeHit, type GeocodeOpts } from './geocode.ts'
@@ -25,6 +25,24 @@ export interface ExtractOpts {
   geocode?: GeocodeOpts | false
   onProgress?: Progress
   onRetry?: OnRetry
+  /** Replace the model call — for running the whole stage offline in tests. */
+  interpretCall?: ModelCall
+}
+
+/**
+ * Google's own labels for places that CONTAIN a trip rather than being a stop
+ * on it. Checked against the live API: "Japan" is `country`, "Tokyo" and "Bali"
+ * are `administrative_area_level_1`. Pinning them put a dot in the middle of a
+ * country on the map and a "confirmed place" in the tray that nobody can visit.
+ *
+ * `locality` is deliberately NOT here. Kyoto, Ubud and Shinjuku all come back as
+ * locality, and in a multi-city trip those are real stops — dropping them would
+ * throw away the itinerary's skeleton.
+ */
+const REGION_TYPES = new Set(['country', 'administrative_area_level_1'])
+
+export function isRegion(types: string[] | undefined): boolean {
+  return (types ?? []).some((t) => REGION_TYPES.has(t))
 }
 
 /**
@@ -69,7 +87,7 @@ export async function extract(
 
   // --- B1: one model call per source, sourceType stamped in code -------------
   onProgress('interpret', 'reading each source separately')
-  const output = await interpret(bundle, profile, onRetry)
+  const output = await interpret(bundle, profile, onRetry, opts.interpretCall)
   onProgress('interpret', `${output.mentions.length} mentions, ${output.tips.length} tips, ${output.facts.length} facts`)
 
   // --- B2: the guard --------------------------------------------------------
@@ -97,6 +115,12 @@ export async function extract(
 
   // --- C: does it exist? ----------------------------------------------------
   const places: Place[] = []
+  const generalTips = [...tipsByCluster.unattached]
+  const generalFacts = [...factsByCluster.unattached]
+  // Regions become context rather than pins. Most specific wins: "Tokyo" says
+  // more about a trip than "Japan" does.
+  let region: { name: string; level: number } | null = null
+
   for (const cluster of clusters) {
     let hit: GeocodeHit | null = null
 
@@ -104,22 +128,37 @@ export async function extract(
       hit = await geocode(cluster.name, { destination: output.destination, ...opts.geocode }, onRetry)
     }
 
-    places.push(buildPlace(bundle, cluster, hit, {
-      tips: tipsByCluster.byCluster.get(cluster) ?? [],
-      facts: factsByCluster.byCluster.get(cluster) ?? [],
-    }))
+    const clusterTips = tipsByCluster.byCluster.get(cluster) ?? []
+    const clusterFacts = factsByCluster.byCluster.get(cluster) ?? []
+
+    // Only a CONFIDENT match may reclassify a mention as a region. A loose one
+    // stays a place for you to judge, rather than silently disappearing.
+    const confident = hit !== null && (hit.match === 'exact' || hit.match === 'strong')
+    if (confident && isRegion(hit!.types)) {
+      const level = hit!.types!.includes('administrative_area_level_1') ? 1 : 0
+      if (!region || level > region.level) region = { name: hit!.canonicalName, level }
+      // Advice about the region is advice about the trip — keep it, don't drop it.
+      generalTips.push(...clusterTips)
+      generalFacts.push(...clusterFacts)
+      continue
+    }
+
+    places.push(buildPlace(bundle, cluster, hit, { tips: clusterTips, facts: clusterFacts }))
   }
 
   const confirmed = places.filter((p) => p.status === 'confirmed').length
-  onProgress('geocode', `${confirmed} confirmed, ${places.length - confirmed} need your check`)
+  onProgress('geocode', `${confirmed} confirmed, ${places.length - confirmed} need your check`
+    + (region ? ` · region: ${region.name}` : ''))
 
   return CaptureResultSchema.parse({
     captureId: bundle.captureId,
     profile,
-    destination: output.destination,
+    // The model's reading of the destination wins when it has one; otherwise
+    // the region the reel actually named is the best statement of where it is.
+    destination: output.destination ?? region?.name ?? null,
     places,
-    generalTips: tipsByCluster.unattached,
-    generalFacts: factsByCluster.unattached,
+    generalTips,
+    generalFacts,
     // Kept rather than discarded: when a capture comes back thinner than the
     // reel looked, this is the only way to tell "nothing was said" apart from
     // "the model said it but could not back it up".
