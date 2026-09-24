@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { EvidenceBundle } from '@reel/shared'
 import { resolverFor } from '../resolvers/index.ts'
@@ -41,27 +41,29 @@ export async function buildEvidence(input: string, onProgress: Progress = () => 
     onProgress('frames', `${durationSeconds?.toFixed(1) ?? '?'}s video`)
     frames = await extractFrames(media.videoPath, workdir)
 
-    if (await hasAudioStream(media.videoPath)) {
-      audioPath = await extractAudio(media.videoPath, workdir)
-      audioSource = 'video'
-    } else if (media.separateAudioPath) {
-      // Instagram's DASH delivery splits the streams, so a video file with no
-      // audio track does NOT mean a silent reel.
-      audioPath = await extractAudio(media.separateAudioPath, workdir)
-      audioSource = 'separate'
-      onProgress('audio', 'used the separate DASH audio stream')
-    } else {
-      onProgress('audio', 'no audio stream anywhere — caption + OCR only')
-    }
-  }
+    // Instagram's DASH delivery splits the streams, so a video file with no
+    // audio track does NOT mean a silent reel.
+    const inVideo = await hasAudioStream(media.videoPath)
+    const source = inVideo ? media.videoPath : media.separateAudioPath
 
-  // A borrowed music track carries no spoken claims. Transcribing it would put
-  // song lyrics into the evidence bundle, and Stage B would then be free to
-  // quote a lyric as the source for a place that was never mentioned.
-  if (audioPath && media.usesOriginalAudio === false) {
-    skippedAsrReason = 'post uses a licensed music track, not original audio — no speech to transcribe'
-    onProgress('asr', 'skipped: ' + skippedAsrReason)
-    audioPath = null
+    if (!source) {
+      onProgress('audio', 'no audio stream anywhere — caption + OCR only')
+    } else if (media.usesOriginalAudio === false) {
+      // A borrowed music track carries no spoken claims. Transcribing it would
+      // put song lyrics into the evidence bundle, and Stage B would then be free
+      // to quote a lyric as the source for a place that was never mentioned.
+      //
+      // It is not extracted either. audio.flac is what GET /clip cuts from, and
+      // one left on disk served three seconds of the song as "proof". A copy
+      // from a run before this check existed is removed for the same reason.
+      skippedAsrReason = 'post uses a licensed music track, not original audio — no speech to transcribe'
+      onProgress('asr', 'skipped: ' + skippedAsrReason)
+      await rm(path.join(workdir, 'audio.flac'), { force: true })
+    } else {
+      audioPath = await extractAudio(source, workdir)
+      audioSource = inVideo ? 'video' : 'separate'
+      if (!inVideo) onProgress('audio', 'used the separate DASH audio stream')
+    }
   }
 
   // A carousel or still post has no audio at all. That is a normal capture:

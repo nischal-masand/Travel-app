@@ -7,7 +7,7 @@
  *
  *   npm run smoke:api -w @reel/server
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -138,6 +138,28 @@ check('a re-run keeps a confirmation', rerun.places.find((p) => p.id === 'place-
 
 check('verdict on an unknown place is a 404', (await call('POST', '/places/nope/confirm')).status === 404)
 check('a correction needs a name', (await call('POST', '/places/place-kaiju/correct', {})).status === 400)
+
+section('CLIPS')
+// A clip is proof only when someone spoke. A licensed-music reel used to keep
+// its song as audio.flac, so /clip played three seconds of it as "evidence".
+const { ffmpeg } = await import('./lib/exec.ts')
+const { workdirFor } = await import('./lib/workdir.ts')
+const withTone = async (id: string, skippedAsrReason: string | null) => {
+  const wd = await workdirFor(id)
+  await ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-ac', '1', '-ar', '16000', '-c:a', 'flac', path.join(wd, 'audio.flac')])
+  writeFileSync(path.join(wd, 'evidence.json'), JSON.stringify({ skippedAsrReason }))
+  return wd
+}
+await withTone('clipspoken01', null)
+const spoken = await app.request('/captures/clipspoken01/clip?at=2')
+check('a spoken reel serves a clip', spoken.status === 200 && spoken.headers.get('content-type') === 'audio/mp4', String(spoken.status))
+const musicDir = await withTone('clipmusic001', 'post uses a licensed music track, not original audio — no speech to transcribe')
+check('a licensed-music reel has no clip, even with the song on disk',
+  (await app.request('/captures/clipmusic001/clip?at=2')).status === 404)
+mkdirSync(path.join(musicDir, 'evidence'), { recursive: true })
+writeFileSync(path.join(musicDir, 'evidence', 'clip-2_00.m4a'), 'cut before the fix')
+check('...nor a clip of the song cut before the fix', (await app.request('/captures/clipmusic001/clip?at=2')).status === 404)
+check('a capture with no audio at all has no clip', (await app.request('/captures/clipsilent01/clip?at=2')).status === 404)
 
 section('INPUT VALIDATION')
 check('sharing with no url is a 400', (await call('POST', '/captures', {})).status === 400)

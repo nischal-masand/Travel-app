@@ -1,4 +1,4 @@
-import { access, mkdir, readdir } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ffmpeg } from '../lib/exec.ts'
 import { workdirFor } from '../lib/workdir.ts'
@@ -69,19 +69,37 @@ async function firstImage(workdir: string): Promise<string | null> {
 }
 
 /**
+ * Audio is evidence only when someone spoke. No audio.flac means a carousel or
+ * a still post. A bundle that skipped transcription means the track was a
+ * licensed song: bundle.ts no longer extracts those, but captures made before
+ * it stopped still have the song on disk, and their bundle says so.
+ */
+async function hasSpokenAudio(workdir: string): Promise<boolean> {
+  if (!(await exists(path.join(workdir, 'audio.flac')))) return false
+  try {
+    const bundle = JSON.parse(await readFile(path.join(workdir, 'evidence.json'), 'utf8')) as { skippedAsrReason?: string | null }
+    return !bundle.skippedAsrReason
+  } catch {
+    // No readable bundle to consult: the audio file is the only evidence there is.
+    return true
+  }
+}
+
+/**
  * A short audio clip centred on `atSeconds`, so you can hear the name said
  * rather than trust the transcription of it. Returns null when the capture has
  * no usable audio — a carousel, or a reel using a licensed music track.
  */
 export async function clipAt(captureId: string, atSeconds: number): Promise<string | null> {
   const workdir = await workdirFor(captureId)
+  // Before the cache, so a clip cut before a rule existed is not served after it.
+  if (!(await hasSpokenAudio(workdir))) return null
+
   const stamp = atSeconds.toFixed(2).replace('.', '_')
   const dest = path.join(await evidenceDir(workdir), `clip-${stamp}.m4a`)
   if (await exists(dest)) return dest
 
   const audio = path.join(workdir, 'audio.flac')
-  if (!(await exists(audio))) return null
-
   const start = Math.max(0, atSeconds - CLIP_PAD_SECONDS)
   await ffmpeg([
     '-ss', String(start),
