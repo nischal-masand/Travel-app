@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Reel Trip",
+    "slug": "reel-trip",
+    "version": "0.1.0",
+    "scheme": "reeltrip",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "app.reeltrip.mobile",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "app.reeltrip.mobile",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-audio",
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": ["text/*"],
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

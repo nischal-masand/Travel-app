@@ -1,0 +1,41 @@
+{
+  "name": "@reel/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "android": "expo start --android",
+    "typecheck": "tsc --noEmit",
+    "export:web": "expo export -p web"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.16",
+    "@expo/vector-icons": "^15.1.1",
+    "expo": "^57.0.24",
+    "expo-audio": "~57.0.5",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.19",
+    "expo-dev-client": "~57.0.19",
+    "expo-image": "~57.0.5",
+    "expo-linking": "~57.0.10",
+    "expo-router": "~57.0.22",
+    "expo-share-intent": "^8.0.1",
+    "expo-status-bar": "~57.0.1",
+    "leaflet": "^1.9.4",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-leaflet": "^5.0.0",
+    "react-native": "^0.86.3",
+    "react-native-maps": "^1.27.2",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.22",
+    "@types/react": "~19.2",
+    "typescript": "~5.9"
+  }
+}
