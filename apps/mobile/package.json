@@ -13,14 +13,14 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.1.1",
-    "expo": "^57.0.24",
+    "expo": "~57.0.25",
     "expo-audio": "~57.0.5",
     "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.19",
     "expo-dev-client": "~57.0.19",
     "expo-image": "~57.0.5",
-    "expo-linking": "~57.0.10",
-    "expo-router": "~57.0.22",
+    "expo-linking": "~57.0.11",
+    "expo-router": "~57.0.23",
     "expo-share-intent": "^8.0.1",
     "expo-status-bar": "~57.0.1",
     "leaflet": "^1.9.4",
@@ -37,5 +37,12 @@
     "@types/leaflet": "^1.9.22",
     "@types/react": "~19.2",
     "typescript": "~5.9"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
   }
 }

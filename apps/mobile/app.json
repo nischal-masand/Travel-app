@@ -6,14 +6,12 @@
     "scheme": "reeltrip",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "app.reeltrip.mobile",
       "supportsTablet": false
     },
     "android": {
-      "package": "app.reeltrip.mobile",
-      "edgeToEdgeEnabled": true
+      "package": "app.reeltrip.mobile"
     },
     "web": {
       "bundler": "metro",
@@ -25,7 +23,9 @@
       [
         "expo-share-intent",
         {
-          "androidIntentFilters": ["text/*"],
+          "androidIntentFilters": [
+            "text/*"
+          ],
           "iosActivationRules": {
             "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
             "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
