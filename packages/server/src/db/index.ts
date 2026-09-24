@@ -47,7 +47,7 @@ const DDL = [
     id TEXT PRIMARY KEY, url TEXT NOT NULL, platform TEXT NOT NULL,
     profile TEXT NOT NULL DEFAULT 'travel', status TEXT NOT NULL DEFAULT 'queued',
     step TEXT, error TEXT, author TEXT, posted_at TEXT, caption TEXT,
-    duration_seconds REAL, destination TEXT, skipped_asr_reason TEXT,
+    duration_seconds REAL, destination TEXT, skipped_asr_reason TEXT, has_audio INTEGER,
     ocr_failed_frames INTEGER NOT NULL DEFAULT 0,
     rejected_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT)`,
@@ -119,6 +119,7 @@ let ready: Promise<void> | null = null
  */
 const ADDED_COLUMNS = [
   `ALTER TABLE places ADD COLUMN reviewed_by TEXT`,
+  `ALTER TABLE captures ADD COLUMN has_audio INTEGER`,
 ]
 
 /** Idempotent. Safe to call on every server start. */

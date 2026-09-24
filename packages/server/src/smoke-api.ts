@@ -90,6 +90,9 @@ check('lists the capture', row?.id === CAPTURE)
 check('counts its places', row?.placeCount === 2, String(row?.placeCount))
 check('counts what needs checking', row?.needsCheckCount === 1, String(row?.needsCheckCount))
 check('carries the rejection count', row?.rejectedCount === 1)
+// The fixture has no transcript — a carousel, or a music-track reel — so there
+// are no spoken clips, and the app should know that without probing for a 404.
+check('a capture with no transcript says it has no audio', row?.hasAudio === false, String(row?.hasAudio))
 
 section('CAPTURE DETAIL')
 const detail = (await call('GET', `/captures/${CAPTURE}`)).json as ApiCaptureDetail

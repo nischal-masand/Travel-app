@@ -30,6 +30,8 @@ export const captures = sqliteTable('captures', {
 
   /** Why a capture came back thin: no speech, unread frames, dropped items. */
   skippedAsrReason: text('skipped_asr_reason'),
+  /** Null = recorded before this column existed, so unknown. */
+  hasAudio: integer('has_audio', { mode: 'boolean' }),
   ocrFailedFrames: integer('ocr_failed_frames').notNull().default(0),
   rejectedCount: integer('rejected_count').notNull().default(0),
 

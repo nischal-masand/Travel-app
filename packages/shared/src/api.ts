@@ -40,6 +40,13 @@ export interface ApiCapture {
   destination: string | null
   /** Set when a reel used a licensed music track, so it has no transcript. */
   skippedAsrReason: string | null
+  /**
+   * Whether spoken audio was transcribed — i.e. whether "hear it" clips exist
+   * for this capture. Lets the app hide the button up front instead of probing
+   * the clip endpoint for a 404. Null for captures made before this was
+   * recorded: unknown, so the app should fall back to asking.
+   */
+  hasAudio: boolean | null
   ocrFailedFrames: number
   /** Items the model produced but could not back with a quote. */
   rejectedCount: number

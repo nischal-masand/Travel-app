@@ -115,6 +115,9 @@ export async function saveResult(
     durationSeconds: bundle.durationSeconds,
     destination: result.destination,
     skippedAsrReason: bundle.skippedAsrReason,
+    // A transcript exists exactly when there is spoken audio to clip. A music
+    // track is skipped before transcription, so it correctly reads false.
+    hasAudio: bundle.transcript !== null && bundle.transcript.text.trim().length > 0,
     ocrFailedFrames: bundle.ocrFailedFrames,
     rejectedCount: result.rejected.length,
     completedAt: new Date().toISOString(),
