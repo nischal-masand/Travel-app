@@ -46,8 +46,12 @@ export const places = sqliteTable('places', {
   status: text('status').notNull(),
   confidence: text('confidence').notNull(),
 
-  /** Present iff confirmed, or a loose candidate for you to judge. */
-  placeId: text('place_id'),
+  /**
+   * Google's place id. Named googlePlaceId in code because `placeId` on every
+   * child table means OUR place — the same word for two different ids is how
+   * a join quietly goes wrong. The column keeps its original name.
+   */
+  googlePlaceId: text('place_id'),
   lat: real('lat'),
   lng: real('lng'),
   canonicalName: text('canonical_name'),
@@ -55,10 +59,12 @@ export const places = sqliteTable('places', {
 
   /** Earliest moment in the video — drives the frame and clip evidence. */
   firstSeconds: real('first_seconds'),
+  /** 'user' once you have confirmed, corrected or dismissed it in the tray. */
+  reviewedBy: text('reviewed_by'),
 }, (t) => [
   index('places_capture_idx').on(t.captureId),
   // Ten Bali reels naming one beach collapse to one pin with ten sources.
-  index('places_google_idx').on(t.placeId),
+  index('places_google_idx').on(t.googlePlaceId),
   index('places_status_idx').on(t.status),
 ])
 

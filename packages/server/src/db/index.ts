@@ -59,7 +59,7 @@ const DDL = [
     name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'other',
     status TEXT NOT NULL, confidence TEXT NOT NULL,
     place_id TEXT, lat REAL, lng REAL, canonical_name TEXT, address TEXT,
-    first_seconds REAL)`,
+    first_seconds REAL, reviewed_by TEXT)`,
   `CREATE INDEX IF NOT EXISTS places_capture_idx ON places(capture_id)`,
   `CREATE INDEX IF NOT EXISTS places_google_idx ON places(place_id)`,
   `CREATE INDEX IF NOT EXISTS places_status_idx ON places(status)`,
@@ -96,12 +96,42 @@ const DDL = [
   `CREATE INDEX IF NOT EXISTS rejections_capture_idx ON rejections(capture_id)`,
 ]
 
+/**
+ * Drizzle wraps driver errors: the top-level message is "Failed query: ALTER
+ * TABLE ..." and SQLite's "duplicate column name" sits a level or two down in
+ * `cause`. Checking only the top message would crash every restart against a
+ * database that already has the column.
+ */
+function mentionsDuplicateColumn(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
+    if (/duplicate column/i.test(String((e as Error).message ?? e))) return true
+  }
+  return false
+}
+
 let ready: Promise<void> | null = null
+
+/**
+ * Columns added after the first release. CREATE TABLE IF NOT EXISTS never
+ * touches a table that already exists, so a database created before a column
+ * existed needs it added explicitly — and SQLite has no ADD COLUMN IF NOT
+ * EXISTS, so the duplicate-column error is the signal it is already there.
+ */
+const ADDED_COLUMNS = [
+  `ALTER TABLE places ADD COLUMN reviewed_by TEXT`,
+]
 
 /** Idempotent. Safe to call on every server start. */
 export function migrate(): Promise<void> {
   ready ??= (async () => {
     for (const statement of DDL) await db.run(statement)
+    for (const statement of ADDED_COLUMNS) {
+      try {
+        await db.run(statement)
+      } catch (err) {
+        if (!mentionsDuplicateColumn(err)) throw err
+      }
+    }
   })()
   return ready
 }

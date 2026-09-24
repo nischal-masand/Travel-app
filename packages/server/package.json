@@ -12,8 +12,9 @@
     "smoke:extract": "node --experimental-strip-types src/smoke-extract.ts",
     "smoke:geocode": "node --experimental-strip-types src/smoke-geocode.ts",
     "smoke:interpret": "node --experimental-strip-types src/smoke-interpret.ts",
-    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode && npm run smoke:interpret",
-    "api": "node --experimental-strip-types --env-file-if-exists=../../.env src/api.ts"
+    "test": "npm run smoke && npm run smoke:extract && npm run smoke:geocode && npm run smoke:interpret && npm run smoke:api",
+    "api": "node --experimental-strip-types --env-file-if-exists=../../.env src/api.ts",
+    "smoke:api": "node --experimental-strip-types src/smoke-api.ts"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

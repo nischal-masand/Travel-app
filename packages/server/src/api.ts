@@ -4,8 +4,12 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { migrate } from './db/index.ts'
 import {
-  createCapture, getCapture, listCaptures, listMapPlaces, listNeedsCheck,
+  applyCorrection, confirmPlace, createCapture, deleteCapture, dismissPlace,
+  getCapture, getPlace, listCaptures, listMapPlaces, listNeedsCheck,
 } from './db/store.ts'
+import { geocode } from './extract/geocode.ts'
+import { kindFromTypes } from './extract/index.ts'
+import type { CorrectPlaceRequest } from '@reel/shared'
 import { enqueue, queueDepth } from './jobs.ts'
 import { captureIdFor } from './lib/workdir.ts'
 import { resolverFor } from './resolvers/index.ts'
@@ -63,6 +67,66 @@ app.get('/captures/:id', async (c) => {
   return c.json(found)
 })
 
+app.delete('/captures/:id', async (c) => {
+  const gone = await deleteCapture(c.req.param('id'))
+  return gone ? c.body(null, 204) : c.json({ error: 'not found' }, 404)
+})
+
+// --- your verdicts ---------------------------------------------------------
+// The tray is only useful if you can act on it. Each of these records that a
+// human made the call, which is a stronger check than any match grade.
+
+app.post('/places/:id/confirm', async (c) => {
+  const place = await confirmPlace(c.req.param('id'))
+  return place ? c.json(place) : c.json({ error: 'not found' }, 404)
+})
+
+app.post('/places/:id/dismiss', async (c) => {
+  const place = await dismissPlace(c.req.param('id'))
+  return place ? c.json(place) : c.json({ error: 'not found' }, 404)
+})
+
+/**
+ * You know the right name. It still goes through Google and the same match
+ * grading as the pipeline: a typo in your correction should not become a
+ * confident pin any more than a typo in the reel should.
+ */
+app.post('/places/:id/correct', async (c) => {
+  const id = c.req.param('id')
+  const body: Partial<CorrectPlaceRequest> = await c.req.json<CorrectPlaceRequest>().catch(() => ({}))
+  const name = body.name?.trim()
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const place = await getPlace(id)
+  if (!place) return c.json({ error: 'not found' }, 404)
+
+  let hit
+  try {
+    hit = await geocode(name, { destination: place.destination })
+  } catch (err) {
+    // The lookup never happened — that says nothing about whether the place exists.
+    return c.json({ error: 'geocoding unavailable', detail: (err as Error).message }, 503)
+  }
+  if (!hit) {
+    return c.json({ error: 'not found on Google', detail: `Nothing matched "${name}". Try the name as it appears on Google Maps.` }, 422)
+  }
+
+  const strong = hit.match === 'exact' || hit.match === 'strong'
+  const updated = await applyCorrection(id, {
+    name,
+    kind: kindFromTypes(hit.types),
+    // A loose match on your own correction still comes back to you to confirm.
+    status: strong ? 'confirmed' : 'needs_check',
+    confidence: strong ? 'high' : 'low',
+    googlePlaceId: hit.placeId,
+    lat: hit.lat,
+    lng: hit.lng,
+    canonicalName: hit.canonicalName,
+    address: hit.address,
+  })
+  return c.json(updated)
+})
+
 /** The tray: everything the pipeline would not vouch for on its own. */
 app.get('/needs-check', async (c) => c.json({ places: await listNeedsCheck() }))
 
@@ -117,6 +181,7 @@ export async function startServer(port = Number(process.env.PORT ?? 3000)) {
     console.log('  GET  /captures/:id        status + result')
     console.log('  GET  /needs-check         the tray')
     console.log('  GET  /map                 confirmed pins')
+    console.log('  POST /places/:id/confirm | dismiss | correct {name}')
   })
 }
 
