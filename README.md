@@ -20,40 +20,53 @@ that doesn't exist can't be resolved.
 - [x] **Phase 1** — Stage A: the evidence bundle (resolve, frames, OCR, 2-pass ASR)
 - [x] **Phase 2** — Stages B + C: interpretation, quote guard, reconciliation, geocoding
 - [x] **Phase 3a** — HTTP API, SQLite storage, job queue, evidence endpoints
-- [ ] **Phase 3b** — the Expo app ← *resume here*
-- [ ] Phase 4 — map + collections · Phase 5 — web · Phase 6 — recipe profile · Phase 7 — deploy
+- [x] **Phase 3b** — the app: Inbox, Check tray, capture card, map (verified on web)
+- [ ] **Native build** ← *resume here* — share sheet, native map, on-device audio
+- [ ] Phase 5 — recipe profile · Phase 6 — deploy
 
 ## Where to pick up
 
-The backend is complete and proven end to end on real Instagram reels. What's
-left is the app.
+The app runs end to end on the web: share a link, watch it process, judge the
+unverified places with the frame and clip from the reel, see confirmed ones on
+the map. Nothing native has been run yet.
 
 ```bash
-npm run api -w @reel/server          # start the server on :3000
-npm test -w @reel/server             # 4 suites, offline, no keys
-npm run capture -- "<url>"           # same pipeline, straight to the terminal
+npm run api -w @reel/server      # server on :3000
+npm run web -w @reel/mobile      # app in a browser on :8081
+npm test -w @reel/server         # backend: 230+ checks, offline, no keys
 ```
 
-**Next: Phase 3b, the Expo app.**
+**Next: a native build.** The share sheet, native maps and on-device audio all
+need a custom dev build — Expo Go cannot load expo-share-intent.
 
-1. `apps/mobile` — Expo + Expo Router + TypeScript.
-2. `expo-share-intent` for the share sheet. It uses native code, so it needs a
-   **custom dev build** (EAS), not Expo Go — plan for one build cycle before
-   anything is testable on the phone.
-3. Screens: Inbox (poll `GET /captures`) → Capture card (`GET /captures/:id`) →
-   **Needs-check tray** (`GET /needs-check`), which shows `/frame?at=` and
-   `/clip?at=` so a name can be judged without reopening Instagram.
-4. Point the app at the server over your LAN IP or ngrok — `localhost` on the
-   phone is the phone.
+1. `npx expo run:android` from `apps/mobile` (needs Android Studio), or an EAS
+   dev build (`eas build --profile development`).
+2. **Android map:** add the plugin entry below to `app.json`, enable
+   *Maps SDK for Android* on the Google Cloud project, and restrict the key to
+   package `app.reeltrip.mobile` + your signing SHA-1. The key ships inside the
+   app, so treat it as public. Without it the map shows a notice instead of
+   crashing (a missing key crashes Google Maps natively, uncatchably).
+   ```json
+   ["react-native-maps", { "androidGoogleMapsApiKey": "YOUR_KEY" }]
+   ```
+   iOS uses Apple Maps and needs no key.
+3. Point the phone at the server: same Wi-Fi works automatically (the app
+   uses the Expo dev server's host); otherwise set `EXPO_PUBLIC_API_URL`.
 
 **Known rough edges, deliberately left:**
 
-- Countries and cities ("Japan", "Tokyo") become pins. They geocode fine, but a
-  country is not an itinerary stop — they probably belong as destination context.
-- Extraction is not deterministic even at temperature 0: two runs of one reel
-  gave 9 and 7 places. Fine for a tray you review; don't trust counts.
-- `ocr:compare` has never been run — Cloudflare/Moondream is unproven as a
-  fallback. The keys are in `.env`, so it is one command away.
+- **Cross-script duplicates Google resolves differently.** "Kozushima" (the
+  village) and "神津島" (the island) are one place to a traveller but two to
+  Google, so a bilingual caption can still list both. Same-id pairs merge.
+- **Place seen only on screen goes to the tray** even when Google confirms it —
+  deliberate, because the camera reads background shop signs as readily as
+  the creator's overlays. Costs a tap for overlay-only places.
+- Extraction is not deterministic even at temperature 0; place counts vary a
+  little run to run. Fine for a tray you review.
+- The web bundle carries every icon glyph map (~1.9 MB total). Harmless now,
+  worth trimming before shipping.
+- `hasAudio` exists on captures but the tray still probes the clip endpoint
+  instead of reading it — a small follow-up in `src/evidence/clipPlayer.ts`.
 
 ## Setup
 
