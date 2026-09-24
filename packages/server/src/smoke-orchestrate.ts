@@ -9,7 +9,7 @@
  *   npm run smoke:orchestrate -w @reel/server
  */
 import type { EvidenceBundle, Place } from '@reel/shared'
-import { extract, isRegion, mergeSameGooglePlace } from './extract/index.ts'
+import { extract, isRegion, kindFromTypes, mergeSameGooglePlace } from './extract/index.ts'
 import { createGeocodeCache } from './extract/geocode.ts'
 import type { ModelRequest } from './extract/interpret.ts'
 
@@ -191,6 +191,11 @@ check('two unverified guesses at one Google place are NOT merged',
   mergeSameGooglePlace([mk('Yurari', 'needs_check', 'G2'), mk('Fuji Yurari', 'needs_check', 'G2')]).length === 2)
 check('different places are untouched',
   mergeSameGooglePlace([mk('A', 'confirmed', 'G1'), mk('B', 'confirmed', 'G2')]).length === 2)
+
+section('KIND')
+check('an island is an area, not a beach', kindFromTypes(['island', 'natural_feature', 'establishment']) === 'area',
+  kindFromTypes(['island', 'natural_feature', 'establishment']))
+check('a beach is still a beach', kindFromTypes(['beach', 'natural_feature']) === 'beach')
 
 console.log(failures === 0 ? '\n\x1b[32mall good\x1b[0m' : `\n\x1b[31m${failures} failed\x1b[0m`)
 process.exit(failures === 0 ? 0 : 1)

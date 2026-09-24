@@ -43,6 +43,9 @@ const TYPE_TO_KIND: Array<[RegExp, PlaceKind]> = [
   [/^(restaurant|meal_takeaway|meal_delivery|food)$/, 'restaurant'],
   [/^(cafe|coffee_shop|bakery|tea_house)$/, 'cafe'],
   [/^(bar|night_club|pub|liquor_store|wine_bar)$/, 'bar'],
+  // An island is also a natural_feature, so it must be claimed first — Google
+  // lists 'island' before 'natural_feature', and Chichijima came out a 'beach'.
+  [/^(island|archipelago)$/, 'area'],
   [/^(beach|natural_feature)$/, 'beach'],
   [/^(museum|art_gallery|aquarium|zoo|library)$/, 'museum'],
   [/^(tourist_attraction|amusement_park|park|hiking_area|national_park|scenic|point_of_interest_viewpoint)$/, 'viewpoint'],
