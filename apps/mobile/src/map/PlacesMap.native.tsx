@@ -1,8 +1,9 @@
 import { useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Platform, StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, View } from 'react-native'
 import Constants from 'expo-constants'
 import MapView, { Callout, Marker, type MapMarker, type Region } from 'react-native-maps'
-import { font, radius, space, useColors } from '../theme'
+import { Icon, Surface, Text } from 'react-native-paper'
+import { shape, space, useAppTheme } from '../theme'
 import { googleNameIfDifferent, kindLabel, pinsKey, reelCountLabel } from './placeText'
 import type { PinnedPlace, PlacesMapProps } from './types'
 
@@ -12,8 +13,8 @@ import type { PinnedPlace, PlacesMapProps } from './types'
  * androidMapsKeyConfigured). Metro picks this file over PlacesMap.tsx on
  * Android and iOS, so Leaflet never enters the native bundle.
  *
- * Every pin is confirmed, so every pin is the accent colour; the green/amber
- * status colours are reserved for status.
+ * Every pin is confirmed, so every pin is the primary colour; the confirmed
+ * and needsCheck roles are reserved for status.
  */
 
 /** Span shown for a single pin: a neighbourhood, or a region for an area. */
@@ -63,7 +64,7 @@ function androidMapsKeyConfigured(): boolean {
 }
 
 export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: PlacesMapProps) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const mapRef = useRef<MapView>(null)
   const markers = useRef(new Map<string, MapMarker>())
   const [initialRegion] = useState(() => regionFor(places))
@@ -99,9 +100,10 @@ export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: 
 
   if (Platform.OS === 'android' && !androidMapsKeyConfigured()) {
     return (
-      <View style={[styles.fill, styles.unavailable, { backgroundColor: c.surfaceAlt }]}>
-        <Text style={[styles.unavailableTitle, { color: c.text }]}>Map not set up on this Android build</Text>
-        <Text style={[styles.unavailableBody, { color: c.textMuted }]}>
+      <View style={[styles.fill, styles.unavailable, { backgroundColor: colors.surfaceVariant }]}>
+        <Icon source="map-legend" size={40} color={colors.onSurfaceVariant} />
+        <Text variant="titleMedium" style={styles.center}>Map not set up on this Android build</Text>
+        <Text variant="bodyMedium" style={[styles.center, { color: colors.onSurfaceVariant }]}>
           It needs a Google Maps API key in the app config. Your confirmed places are still listed below.
         </Text>
       </View>
@@ -125,15 +127,16 @@ export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: 
               else markers.current.delete(place.id)
             }}
             coordinate={{ latitude: place.lat, longitude: place.lng }}
-            pinColor={c.accent}
+            pinColor={colors.primary}
             title={place.name}
             onPress={() => onSelect(place.id)}
             onCalloutPress={() => onOpenCapture(place)}
             zIndex={place.id === selectedId ? 1 : 0}
           >
             {/*
-              `tooltip` drops the native bubble so the callout takes the app's
-              colours (Android's default info window is always white). On
+              `tooltip` drops the native bubble so the callout is a Material
+              surface in the app's colours (Android's default info window is
+              always white). On
               Android a callout is a static snapshot with one tap target, so it
               holds the details plus "Open reel"; Google Maps lives in the list.
             */}
@@ -148,40 +151,35 @@ export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: 
 }
 
 function CalloutBody({ place }: { place: PinnedPlace }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const google = googleNameIfDifferent(place)
   return (
-    <View style={[styles.callout, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <Text style={[styles.calloutTitle, { color: c.text }]} numberOfLines={2}>{place.name}</Text>
+    <Surface elevation={2} style={[styles.callout, { backgroundColor: colors.surfaceContainerHigh }]}>
+      <Text variant="titleMedium" numberOfLines={2}>{place.name}</Text>
       {google
-        ? <Text style={[styles.calloutSmall, { color: c.textMuted }]} numberOfLines={2}>On Google as {google}</Text>
+        ? <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }} numberOfLines={2}>On Google as {google}</Text>
         : null}
       {place.address
-        ? <Text style={[styles.calloutBody, { color: c.text }]} numberOfLines={3}>{place.address}</Text>
+        ? <Text variant="bodySmall" numberOfLines={3}>{place.address}</Text>
         : null}
-      <Text style={[styles.calloutSmall, { color: c.textMuted }]}>
+      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
         {kindLabel(place.kind)} · {reelCountLabel(place)}
       </Text>
-      <Text style={[styles.calloutAction, { color: c.accent }]}>Open reel ›</Text>
-    </View>
+      <Text variant="labelLarge" style={[styles.calloutAction, { color: colors.primary }]}>Open reel ›</Text>
+    </Surface>
   )
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   unavailable: { alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.sm },
-  unavailableTitle: { fontSize: font.body, fontWeight: '600', textAlign: 'center' },
-  unavailableBody: { fontSize: font.small, lineHeight: 17, textAlign: 'center' },
+  center: { textAlign: 'center' },
   callout: {
     width: 260,
-    padding: space.md,
+    padding: space.lg,
     gap: space.xs,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: shape.large,
     marginBottom: space.sm,
   },
-  calloutTitle: { fontSize: font.body, fontWeight: '600' },
-  calloutBody: { fontSize: font.small, lineHeight: 17 },
-  calloutSmall: { fontSize: font.small, lineHeight: 17 },
-  calloutAction: { fontSize: font.small, fontWeight: '700', marginTop: space.xs },
+  calloutAction: { marginTop: space.xs },
 })

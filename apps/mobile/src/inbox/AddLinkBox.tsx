@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Platform, StyleSheet, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
-import { Ionicons } from '@expo/vector-icons'
+import { Button, HelperText, TextInput } from 'react-native-paper'
 import { api } from '../api'
-import { Button, ErrorBanner } from '../components/ui'
+import { ErrorBanner } from '../components/ui'
 import { extractSupportedUrl } from '../share/extractUrl'
-import { font, radius, space, useColors } from '../theme'
+import { space } from '../theme'
 
 /**
  * Paste a link, get it processed. The only way in on the web, and the fallback
@@ -15,7 +15,6 @@ import { font, radius, space, useColors } from '../theme'
  * says no, its own explanation is shown, including what IS supported.
  */
 export function AddLinkBox({ onAdded }: { onAdded: () => void }) {
-  const c = useColors()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -73,11 +72,12 @@ export function AddLinkBox({ onAdded }: { onAdded: () => void }) {
       <View style={styles.box}>
         <View style={styles.row}>
           <TextInput
+            mode="outlined"
+            label="Reel link"
+            placeholder="Instagram, YouTube or TikTok"
             value={text}
             onChangeText={(t) => { setText(t); if (error) setError(null); if (note) setNote(null) }}
             onSubmitEditing={() => void submit(text)}
-            placeholder="Paste an Instagram, YouTube or TikTok link"
-            placeholderTextColor={c.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
@@ -85,22 +85,23 @@ export function AddLinkBox({ onAdded }: { onAdded: () => void }) {
             returnKeyType="go"
             editable={!busy}
             accessibilityLabel="Link to a reel"
-            style={[styles.input, { color: c.text, backgroundColor: c.surface, borderColor: c.border }]}
+            style={styles.input}
           />
-          <Button label="Add" onPress={() => void submit(text)} disabled={!text.trim()} busy={busy} />
+          <Button mode="contained" onPress={() => void submit(text)} disabled={!text.trim() || busy} loading={busy} style={styles.add}>
+            Add
+          </Button>
         </View>
-        <Pressable
+        <Button
+          mode="text"
+          icon="content-paste"
+          compact
           onPress={() => void pasteFromClipboard()}
           disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="Paste link from clipboard"
-          hitSlop={8}
-          style={({ pressed }) => [styles.paste, { opacity: busy ? 0.4 : pressed ? 0.6 : 1 }]}
+          style={styles.paste}
         >
-          <Ionicons name="clipboard-outline" size={16} color={c.accent} />
-          <Text style={[styles.pasteText, { color: c.accent }]}>Paste link from clipboard</Text>
-        </Pressable>
-        {note ? <Text style={[styles.note, { color: c.textMuted }]}>{note}</Text> : null}
+          Paste link from clipboard
+        </Button>
+        {note ? <HelperText type="info" padding="none">{note}</HelperText> : null}
       </View>
       {error ? <ErrorBanner error={error} /> : null}
     </View>
@@ -108,13 +109,10 @@ export function AddLinkBox({ onAdded }: { onAdded: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  box: { paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.sm },
+  box: { paddingHorizontal: space.lg, paddingTop: space.md, gap: space.xs },
   row: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
-  input: {
-    flex: 1, minHeight: 44, paddingHorizontal: space.md, borderRadius: radius.md,
-    borderWidth: 1, fontSize: font.body,
-  },
-  paste: { flexDirection: 'row', alignItems: 'center', gap: space.xs, alignSelf: 'flex-start', paddingVertical: space.xs },
-  pasteText: { fontSize: font.small, fontWeight: '600' },
-  note: { fontSize: font.small, lineHeight: 17 },
+  input: { flex: 1 },
+  // The outlined field reserves 6dp above its box for the floating label.
+  add: { marginTop: 6 },
+  paste: { alignSelf: 'flex-start' },
 })

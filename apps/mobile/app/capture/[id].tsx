@@ -1,14 +1,14 @@
 import { useCallback, useState } from 'react'
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
-import { Ionicons } from '@expo/vector-icons'
+import { Button, Card, HelperText, Icon, List, ProgressBar, Text } from 'react-native-paper'
 import type { ApiCapture, ApiPlace, ApiPlaceDetail, ApiPlaceStatus } from '@reel/shared'
 import { api } from '../../src/api'
-import { Button, Card, ErrorBanner, Loading } from '../../src/components/ui'
+import { ErrorBanner, Loading, Notice } from '../../src/components/ui'
 import { FactList, PlaceCard, ResultNotes, ReviewActions, TipList, stopClip, toError } from '../../src/evidence'
 import { captureByline, relativeTime } from '../../src/format'
 import { useApi } from '../../src/useApi'
-import { font, radius, space, useColors } from '../../src/theme'
+import { space, useAppTheme } from '../../src/theme'
 
 /**
  * One reel, and everything that came out of it — with the evidence for each
@@ -16,7 +16,7 @@ import { font, radius, space, useColors } from '../../src/theme'
  */
 export default function CaptureScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
-  const c = useColors()
+  const { colors } = useAppTheme()
   const { data, error, loading, refreshing, refresh, reload, setData } = useApi(
     () => api.getCapture(id),
     { pollWhile: (d) => d.capture.status === 'queued' || d.capture.status === 'running' },
@@ -109,7 +109,13 @@ export default function CaptureScreen() {
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.accent} colors={[c.accent]} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.surfaceContainerHigh}
+          />
         }
       >
         <Header capture={capture} />
@@ -118,8 +124,10 @@ export default function CaptureScreen() {
         {confirmed.length > 0 || toCheck.length > 0 || dismissed.length > 0
           ? (
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: c.text }]}>Places</Text>
-              <Text style={[styles.sectionSub, { color: c.textMuted }]}>{placeSummary(confirmed.length, toCheck.length)}</Text>
+              <Text variant="titleLarge">Places</Text>
+              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+                {placeSummary(confirmed.length, toCheck.length)}
+              </Text>
             </View>
           )
           : null}
@@ -130,7 +138,7 @@ export default function CaptureScreen() {
           ? (
             <>
               {confirmed.length > 0
-                ? <Text style={[styles.groupTitle, { color: c.textMuted }]}>NEEDS YOUR CHECK</Text>
+                ? <Text variant="titleSmall" style={{ color: colors.primary }}>Needs your check</Text>
                 : null}
               {toCheck.map(renderPlace)}
             </>
@@ -139,33 +147,33 @@ export default function CaptureScreen() {
 
         {dismissed.length > 0
           ? (
-            <>
-              <Pressable
-                onPress={() => setShowDismissed((v) => !v)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: showDismissed }}
-                hitSlop={8}
-                style={({ pressed }) => [styles.toggle, { opacity: pressed ? 0.6 : 1 }]}
-              >
-                <Text style={[styles.toggleText, { color: c.textMuted }]}>
-                  {dismissed.length} dismissed
-                </Text>
-                <Ionicons name={showDismissed ? 'chevron-up' : 'chevron-down'} size={16} color={c.textMuted} />
-              </Pressable>
-              {showDismissed ? dismissed.map(renderPlace) : null}
-            </>
+            <List.Accordion
+              title={`${dismissed.length} dismissed`}
+              left={(props) => <List.Icon {...props} icon="close-circle-outline" />}
+              expanded={showDismissed}
+              onPress={() => setShowDismissed((v) => !v)}
+              style={styles.accordion}
+            >
+              <View style={styles.dismissedList}>{dismissed.map(renderPlace)}</View>
+            </List.Accordion>
           )
           : null}
 
         {capture.status === 'done' && data.places.length === 0
           ? (
-            <Card>
-              <Text style={[styles.cardTitle, { color: c.text }]}>No places found in this reel</Text>
-              <Text style={[styles.meta, { color: c.textMuted }]}>
-                {hasGeneral
-                  ? 'Nothing it said, showed or captioned named a specific place. It did have tips and facts — below.'
-                  : 'Nothing it said, showed or captioned named a specific place.'}
-              </Text>
+            <Card mode="outlined">
+              <Card.Title
+                title="No places found in this reel"
+                titleVariant="titleMedium"
+                left={(props) => <Icon {...props} source="map-marker-off-outline" />}
+              />
+              <Card.Content>
+                <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+                  {hasGeneral
+                    ? 'Nothing it said, showed or captioned named a specific place. It did have tips and facts — below.'
+                    : 'Nothing it said, showed or captioned named a specific place.'}
+                </Text>
+              </Card.Content>
             </Card>
           )
           : null}
@@ -177,10 +185,16 @@ export default function CaptureScreen() {
         {hasGeneral
           ? (
             <Card>
-              <Text style={[styles.cardTitle, { color: c.text }]}>For the whole trip</Text>
-              <Text style={[styles.sectionSub, { color: c.textMuted }]}>Tips and facts not tied to one place.</Text>
-              {data.generalTips.length > 0 ? <TipList tips={data.generalTips} captureId={capture.id} /> : null}
-              {data.generalFacts.length > 0 ? <FactList facts={data.generalFacts} captureId={capture.id} /> : null}
+              <Card.Title
+                title="For the whole trip"
+                titleVariant="titleMedium"
+                subtitle="Tips and facts not tied to one place"
+                subtitleVariant="bodySmall"
+              />
+              <Card.Content style={styles.general}>
+                {data.generalTips.length > 0 ? <TipList tips={data.generalTips} captureId={capture.id} /> : null}
+                {data.generalFacts.length > 0 ? <FactList facts={data.generalFacts} captureId={capture.id} /> : null}
+              </Card.Content>
             </Card>
           )
           : null}
@@ -201,7 +215,7 @@ const PLATFORM_NAME: Record<string, string> = { instagram: 'Instagram', youtube:
 
 /** Who posted it, where it's about, what they wrote, and a way back to it. */
 function Header({ capture }: { capture: ApiCapture }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const [expanded, setExpanded] = useState(false)
   const [openFailed, setOpenFailed] = useState(false)
   const caption = capture.caption?.trim() ?? ''
@@ -212,46 +226,55 @@ function Header({ capture }: { capture: ApiCapture }) {
 
   return (
     <Card>
-      <Text style={[styles.byline, { color: c.text }]}>{byline || 'Shared link'}</Text>
-      {saved ? <Text style={[styles.meta, { color: c.textMuted }]}>Saved {saved}</Text> : null}
-
-      {capture.destination
-        ? (
-          <View style={styles.destination}>
-            <Ionicons name="location-outline" size={15} color={c.textMuted} />
-            <Text style={[styles.destinationText, { color: c.text }]}>{capture.destination}</Text>
-          </View>
-        )
-        : null}
-
-      {caption
-        ? (
-          <View style={styles.caption}>
-            <Text style={[styles.captionText, { color: c.text }]} numberOfLines={expanded || !long ? undefined : 3} selectable>
-              {caption}
-            </Text>
-            {long
-              ? (
-                <Pressable onPress={() => setExpanded((v) => !v)} accessibilityRole="button" hitSlop={8}>
-                  <Text style={[styles.more, { color: c.accent }]}>{expanded ? 'Show less' : 'Show full caption'}</Text>
-                </Pressable>
-              )
-              : null}
-          </View>
-        )
-        : null}
-
-      <Button
-        label={platform ? `Open original on ${platform}` : 'Open original reel'}
-        variant="secondary"
-        onPress={() => {
-          setOpenFailed(false)
-          Linking.openURL(capture.url).catch(() => setOpenFailed(true))
-        }}
+      <Card.Title
+        title={byline || 'Shared link'}
+        titleVariant="titleLarge"
+        subtitle={saved ? `Saved ${saved}` : undefined}
+        subtitleVariant="bodySmall"
+        subtitleStyle={{ color: colors.onSurfaceVariant }}
       />
-      {openFailed
-        ? <Text style={[styles.meta, { color: c.danger }]} selectable>Couldn't open {capture.url}</Text>
-        : null}
+      <Card.Content style={styles.headerBody}>
+        {capture.destination
+          ? (
+            <View style={styles.destination}>
+              <Icon source="map-marker-outline" size={18} color={colors.primary} />
+              <Text variant="titleSmall">{capture.destination}</Text>
+            </View>
+          )
+          : null}
+
+        {caption
+          ? (
+            <View>
+              <Text variant="bodyMedium" numberOfLines={expanded || !long ? undefined : 3} selectable>
+                {caption}
+              </Text>
+              {long
+                ? (
+                  <Button mode="text" compact onPress={() => setExpanded((v) => !v)} style={styles.more}>
+                    {expanded ? 'Show less' : 'Show full caption'}
+                  </Button>
+                )
+                : null}
+            </View>
+          )
+          : null}
+        {openFailed
+          ? <HelperText type="error" padding="none">Couldn't open {capture.url}</HelperText>
+          : null}
+      </Card.Content>
+      <Card.Actions>
+        <Button
+          mode="outlined"
+          icon="open-in-new"
+          onPress={() => {
+            setOpenFailed(false)
+            Linking.openURL(capture.url).catch(() => setOpenFailed(true))
+          }}
+        >
+          {platform ? `Open on ${platform}` : 'Open original'}
+        </Button>
+      </Card.Actions>
     </Card>
   )
 }
@@ -262,37 +285,35 @@ function Header({ capture }: { capture: ApiCapture }) {
  * this reel can't be read at all, and a generic message would hide which.
  */
 function Progress({ capture }: { capture: ApiCapture }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
 
   if (capture.status === 'queued' || capture.status === 'running') {
     return (
-      <Card>
-        <View style={styles.progressRow}>
-          <ActivityIndicator color={c.accent} />
-          <View style={styles.progressText}>
-            <Text style={[styles.cardTitle, { color: c.text }]}>
-              {capture.status === 'queued' ? 'Waiting in line' : 'Reading the reel'}
-            </Text>
-            {capture.step
-              ? <Text style={[styles.step, { color: c.textMuted }]} selectable>{capture.step}</Text>
-              : null}
-          </View>
-        </View>
-        <Text style={[styles.meta, { color: c.textMuted }]}>
-          This usually takes under a minute. The page updates by itself — you can leave and come back.
-        </Text>
+      <Card mode="contained">
+        <Card.Title
+          title={capture.status === 'queued' ? 'Waiting in line' : 'Reading the reel'}
+          titleVariant="titleMedium"
+          subtitle={capture.step ?? undefined}
+          subtitleNumberOfLines={2}
+          subtitleStyle={[styles.tabular, { color: colors.onSurfaceVariant }]}
+        />
+        <Card.Content style={styles.progressBody}>
+          <ProgressBar indeterminate />
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            This usually takes under a minute. The page updates by itself — you can leave and come back.
+          </Text>
+        </Card.Content>
       </Card>
     )
   }
 
   if (capture.status === 'failed') {
     return (
-      <View style={[styles.failed, { backgroundColor: c.dangerBg }]} accessibilityRole="alert">
-        <Text style={[styles.cardTitle, { color: c.danger }]}>Couldn't process this reel</Text>
-        <Text style={[styles.failedText, { color: c.danger }]} selectable>
-          {capture.error ?? 'The server gave no reason.'}
-        </Text>
-      </View>
+      <Notice
+        title="Couldn't process this reel"
+        body={capture.error ?? 'The server gave no reason.'}
+        inset={false}
+      />
     )
   }
 
@@ -302,22 +323,12 @@ function Progress({ capture }: { capture: ApiCapture }) {
 const styles = StyleSheet.create({
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   section: { gap: 2, marginTop: space.sm },
-  sectionTitle: { fontSize: font.heading, fontWeight: '700' },
-  sectionSub: { fontSize: font.small },
-  groupTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: space.sm },
-  cardTitle: { fontSize: font.title, fontWeight: '700' },
-  toggle: { flexDirection: 'row', alignItems: 'center', gap: space.xs, alignSelf: 'flex-start', paddingVertical: space.xs },
-  toggleText: { fontSize: font.body, fontWeight: '600' },
-  byline: { fontSize: font.title, fontWeight: '700' },
-  meta: { fontSize: font.small, lineHeight: 17 },
+  accordion: { paddingHorizontal: 0 },
+  dismissedList: { gap: space.lg },
+  general: { gap: space.lg },
+  headerBody: { gap: space.md },
   destination: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  destinationText: { fontSize: font.body, fontWeight: '600' },
-  caption: { gap: space.xs },
-  captionText: { fontSize: font.body, lineHeight: 21 },
-  more: { fontSize: font.small, fontWeight: '700' },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  progressText: { flex: 1, gap: 2 },
-  step: { fontSize: font.small, fontVariant: ['tabular-nums'] },
-  failed: { padding: space.lg, borderRadius: radius.lg, gap: space.sm },
-  failedText: { fontSize: font.body, lineHeight: 21 },
+  more: { alignSelf: 'flex-start', marginLeft: -space.sm },
+  progressBody: { gap: space.md },
+  tabular: { fontVariant: ['tabular-nums'] },
 })

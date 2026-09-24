@@ -1,91 +1,74 @@
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import { ActivityIndicator, Appbar, Button, Chip, Icon, Surface, Text } from 'react-native-paper'
 import type { ApiPlaceStatus, Confidence } from '@reel/shared'
-import { font, radius, space, useColors } from '../theme'
 import { ApiRequestError, ServerUnreachableError } from '../api'
+import { shape, space, useAppTheme } from '../theme'
 
 /**
- * The shared building blocks. Screens compose these rather than styling their
- * own cards, badges and empty states, so work done in parallel still reads as
- * one app. Add to this file sparingly — a primitive used once is a component.
+ * How the app uses Material 3 for the things every screen shows: status,
+ * problems, empty and loading states, and the top app bar. The components are
+ * react-native-paper's; this file only fixes which roles and variants they
+ * take, so a status chip or an error reads the same wherever it appears.
  */
-
-export function Card({ children, style, onPress }: {
-  children: ReactNode
-  style?: ViewStyle
-  onPress?: () => void
-}) {
-  const c = useColors()
-  const body = (
-    <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }, style]}>{children}</View>
-  )
-  if (!onPress) return body
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-      {body}
-    </Pressable>
-  )
-}
 
 /**
  * Status is the most important signal in the app, so it has exactly one
- * visual: green for vouched-for, amber for waiting on you. Nothing else in the
- * UI may use these two colours.
+ * visual: the confirmed role for vouched-for, the needsCheck role for waiting
+ * on you. Nothing else in the UI may use those two roles.
  */
-export function StatusBadge({ status, confidence }: { status: ApiPlaceStatus; confidence?: Confidence }) {
-  const c = useColors()
+export function StatusChip({ status, confidence }: { status: ApiPlaceStatus; confidence?: Confidence }) {
+  const { colors } = useAppTheme()
   const look = status === 'confirmed'
-    ? { fg: c.confirmed, bg: c.confirmedBg, label: 'Confirmed' }
+    ? { bg: colors.confirmedContainer, fg: colors.onConfirmedContainer, icon: 'check-circle', label: 'Confirmed' }
     : status === 'needs_check'
-      ? { fg: c.needsCheck, bg: c.needsCheckBg, label: 'Check this' }
-      : { fg: c.textMuted, bg: c.surfaceAlt, label: 'Dismissed' }
+      ? { bg: colors.needsCheckContainer, fg: colors.onNeedsCheckContainer, icon: 'map-marker-question', label: 'Check this' }
+      : { bg: colors.surfaceVariant, fg: colors.onSurfaceVariant, icon: 'close-circle-outline', label: 'Dismissed' }
+  const suffix = confidence && status === 'confirmed' && confidence !== 'high' ? ` · ${confidence}` : ''
   return (
-    <View style={[styles.badge, { backgroundColor: look.bg }]}>
-      <Text style={[styles.badgeText, { color: look.fg }]}>
-        {look.label}{confidence && status === 'confirmed' && confidence !== 'high' ? ` · ${confidence}` : ''}
-      </Text>
-    </View>
-  )
-}
-
-export function Button({ label, onPress, variant = 'primary', disabled, busy }: {
-  label: string
-  onPress: () => void
-  variant?: 'primary' | 'secondary' | 'danger'
-  disabled?: boolean
-  busy?: boolean
-}) {
-  const c = useColors()
-  const look = variant === 'primary'
-    ? { bg: c.accent, fg: c.accentText, border: c.accent }
-    : variant === 'danger'
-      ? { bg: 'transparent', fg: c.danger, border: c.border }
-      : { bg: 'transparent', fg: c.text, border: c.border }
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      disabled={disabled || busy}
-      style={({ pressed }) => [
-        styles.button,
-        { backgroundColor: look.bg, borderColor: look.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 },
-      ]}
+    <Chip
+      compact
+      icon={look.icon}
+      selectedColor={look.fg}
+      style={{ backgroundColor: look.bg }}
+      accessibilityRole="text"
     >
-      {busy
-        ? <ActivityIndicator color={look.fg} />
-        : <Text style={[styles.buttonText, { color: look.fg }]}>{label}</Text>}
-    </Pressable>
+      {look.label}{suffix}
+    </Chip>
   )
 }
 
-export function EmptyState({ title, body }: { title: string; body?: string }) {
-  const c = useColors()
+/**
+ * A problem, in a tonal error container. Used for anything that needs the
+ * user's attention and says exactly what went wrong.
+ */
+export function Notice({ title, body, icon = 'alert-circle-outline', action, inset = true }: {
+  title: string
+  body?: string
+  icon?: string
+  action?: { label: string; onPress: () => void }
+  /** Screen-level notices sit in from the edges; ones inside a card don't. */
+  inset?: boolean
+}) {
+  const { colors } = useAppTheme()
+  const fg = colors.onErrorContainer
   return (
-    <View style={styles.empty}>
-      <Text style={[styles.emptyTitle, { color: c.text }]}>{title}</Text>
-      {body ? <Text style={[styles.emptyBody, { color: c.textMuted }]}>{body}</Text> : null}
-    </View>
+    <Surface
+      elevation={0}
+      style={[styles.notice, inset && styles.noticeInset, { backgroundColor: colors.errorContainer }]}
+      accessibilityRole="alert"
+    >
+      <View style={styles.noticeRow}>
+        <Icon source={icon} size={20} color={fg} />
+        <View style={styles.flex}>
+          <Text variant="titleSmall" style={{ color: fg }}>{title}</Text>
+          {body ? <Text variant="bodySmall" style={{ color: fg }} selectable>{body}</Text> : null}
+        </View>
+      </View>
+      {action
+        ? <Button mode="text" compact textColor={fg} onPress={action.onPress} style={styles.noticeAction}>{action.label}</Button>
+        : null}
+    </Surface>
   )
 }
 
@@ -94,41 +77,55 @@ export function EmptyState({ title, body }: { title: string; body?: string }) {
  * nothing for that name" need different responses from the user, so errors are
  * never collapsed into a generic "something went wrong".
  */
-export function ErrorBanner({ error, onRetry }: { error: Error; onRetry?: () => void }) {
-  const c = useColors()
-  const detail = error instanceof ApiRequestError ? error.detail : undefined
-  const title = error instanceof ServerUnreachableError ? 'Server unreachable' : error.message
-  const body = error instanceof ServerUnreachableError ? error.message : detail
+export function ErrorBanner({ error, onRetry, inset }: { error: Error; onRetry?: () => void; inset?: boolean }) {
+  const unreachable = error instanceof ServerUnreachableError
   return (
-    <View style={[styles.banner, { backgroundColor: c.dangerBg }]}>
-      <Text style={[styles.bannerTitle, { color: c.danger }]}>{title}</Text>
-      {body ? <Text style={[styles.bannerBody, { color: c.danger }]}>{body}</Text> : null}
-      {onRetry
-        ? <Pressable onPress={onRetry} accessibilityRole="button"><Text style={[styles.bannerRetry, { color: c.danger }]}>Try again</Text></Pressable>
-        : null}
+    <Notice
+      title={unreachable ? 'Server unreachable' : capitalise(error.message)}
+      body={unreachable ? error.message : error instanceof ApiRequestError ? error.detail : undefined}
+      icon={unreachable ? 'lan-disconnect' : 'alert-circle-outline'}
+      action={onRetry ? { label: 'Try again', onPress: onRetry } : undefined}
+      inset={inset}
+    />
+  )
+}
+
+export function EmptyState({ icon, title, body }: { icon?: string; title: string; body?: string }) {
+  const { colors } = useAppTheme()
+  return (
+    <View style={styles.empty}>
+      {icon ? <Icon source={icon} size={48} color={colors.onSurfaceVariant} /> : null}
+      <Text variant="titleMedium" style={styles.center}>{title}</Text>
+      {body ? <Text variant="bodyMedium" style={[styles.center, { color: colors.onSurfaceVariant }]}>{body}</Text> : null}
     </View>
   )
 }
 
 export function Loading() {
-  const c = useColors()
-  return <View style={styles.empty}><ActivityIndicator color={c.accent} /></View>
+  return <View style={styles.empty}><ActivityIndicator /></View>
+}
+
+/** The Material 3 small top app bar, for both the tabs and pushed screens. */
+export function AppHeader({ title, onBack, children }: { title: string; onBack?: () => void; children?: ReactNode }) {
+  return (
+    <Appbar.Header mode="small">
+      {onBack ? <Appbar.BackAction onPress={onBack} /> : null}
+      <Appbar.Content title={title} />
+      {children}
+    </Appbar.Header>
+  )
+}
+
+export function capitalise(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, padding: space.lg, gap: space.sm },
-  badge: { alignSelf: 'flex-start', paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: radius.pill },
-  badgeText: { fontSize: font.small, fontWeight: '600' },
-  button: {
-    minHeight: 44, paddingHorizontal: space.lg, borderRadius: radius.md, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  buttonText: { fontSize: font.body, fontWeight: '600' },
+  flex: { flex: 1, gap: 2 },
+  center: { textAlign: 'center' },
+  notice: { borderRadius: shape.medium, padding: space.md, gap: space.xs },
+  noticeInset: { marginHorizontal: space.lg, marginTop: space.md },
+  noticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
+  noticeAction: { alignSelf: 'flex-end' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.sm },
-  emptyTitle: { fontSize: font.title, fontWeight: '600', textAlign: 'center' },
-  emptyBody: { fontSize: font.body, textAlign: 'center', lineHeight: 21 },
-  banner: { padding: space.md, borderRadius: radius.md, gap: space.xs, margin: space.lg },
-  bannerTitle: { fontSize: font.body, fontWeight: '600' },
-  bannerBody: { fontSize: font.small, lineHeight: 17 },
-  bannerRetry: { fontSize: font.small, fontWeight: '700', marginTop: space.xs },
 })

@@ -1,17 +1,17 @@
 import { useLayoutEffect, useRef } from 'react'
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  RefreshControl, ScrollView, StyleSheet, View,
   type LayoutChangeEvent, type StyleProp, type ViewStyle,
 } from 'react-native'
-import { Button } from '../components/ui'
-import { font, radius, space, useColors } from '../theme'
+import { Button, List, Text } from 'react-native-paper'
+import { shape, space, useAppTheme } from '../theme'
 import { googleNameIfDifferent, kindLabel, reelCountLabel } from './placeText'
 import type { PinnedPlace } from './types'
 
 /**
- * The places on the map as a list: name · kind · address. Tapping a row
- * focuses its pin; the selected row opens up with the actions, which is also
- * where "Open in Google Maps" lives on native (an Android callout can only
+ * The places on the map as a Material 3 list: name · kind · address. Tapping a
+ * row focuses its pin; the selected row opens up with the actions, which is
+ * also where "Open in Google Maps" lives on native (an Android callout can only
  * have one tap target).
  */
 export function PlaceList({
@@ -26,7 +26,7 @@ export function PlaceList({
   onRefresh: () => void
   style?: StyleProp<ViewStyle>
 }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const scrollRef = useRef<ScrollView>(null)
   const offset = useRef(0)
   const viewportHeight = useRef(0)
@@ -50,82 +50,81 @@ export function PlaceList({
     }
   }
 
+  // The caller's size limits go on a wrapper, never on the ScrollView: on the
+  // web a ScrollView with a RefreshControl applies its style twice, nested, so
+  // a maxHeight of 40% became 40% of 40% and the list showed one row.
   return (
-    <ScrollView
-      ref={scrollRef}
-      style={[styles.list, { backgroundColor: c.surface, borderColor: c.border }, style]}
-      contentContainerStyle={styles.content}
-      onLayout={(e) => { viewportHeight.current = e.nativeEvent.layout.height }}
-      onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y }}
-      scrollEventThrottle={32}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} colors={[c.accent]} />}
-    >
-      <Text style={[styles.header, { color: c.textMuted }]}>
-        {places.length} confirmed place{places.length === 1 ? '' : 's'}
-      </Text>
-      {places.map((place) => {
-        const selected = place.id === selectedId
-        const google = selected ? googleNameIfDifferent(place) : null
-        return (
-          <View
-            key={place.id}
-            onLayout={(e) => onRowLayout(place.id, e)}
-            style={[
-              styles.row,
-              { borderColor: selected ? c.accent : 'transparent' },
-              selected && { backgroundColor: c.surfaceAlt },
-            ]}
-          >
-            <Pressable
-              onPress={() => onPressPlace(place.id)}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              accessibilityHint="Shows this place on the map"
-              style={({ pressed }) => [styles.rowHead, { opacity: pressed ? 0.6 : 1 }]}
+    <View style={[{ backgroundColor: colors.surfaceContainerLow }, style]}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.list}
+        contentContainerStyle={styles.content}
+        onLayout={(e) => { viewportHeight.current = e.nativeEvent.layout.height }}
+        onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y }}
+        scrollEventThrottle={32}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.surfaceContainerHigh}
+          />
+        }
+      >
+        <List.Subheader>
+          {`${places.length} confirmed place${places.length === 1 ? '' : 's'}`}
+        </List.Subheader>
+        {places.map((place) => {
+          const selected = place.id === selectedId
+          const google = selected ? googleNameIfDifferent(place) : null
+          return (
+            <View
+              key={place.id}
+              onLayout={(e) => onRowLayout(place.id, e)}
+              style={[styles.row, selected && { backgroundColor: colors.secondaryContainer }]}
             >
-              <View style={[styles.dot, { backgroundColor: c.accent }]} />
-              <View style={styles.rowText}>
-                <Text style={[styles.name, { color: c.text }]} numberOfLines={selected ? undefined : 1}>
-                  {place.name}
-                </Text>
-                <Text style={[styles.meta, { color: c.textMuted }]} numberOfLines={1}>
-                  {selected
-                    ? `${kindLabel(place.kind)} · ${reelCountLabel(place)}`
-                    : [kindLabel(place.kind), place.address].filter(Boolean).join(' · ')}
-                </Text>
-              </View>
-            </Pressable>
-            {selected ? (
-              <View style={styles.details}>
-                {google ? <Text style={[styles.meta, { color: c.textMuted }]}>On Google as {google}</Text> : null}
-                {place.address ? <Text style={[styles.address, { color: c.text }]}>{place.address}</Text> : null}
-                <View style={styles.actions}>
-                  <Button label="Open reel" onPress={() => onOpenCapture(place)} />
-                  <Button label="Open in Google Maps" variant="secondary" onPress={() => onOpenInGoogleMaps(place)} />
-                </View>
-              </View>
-            ) : null}
-          </View>
-        )
-      })}
-    </ScrollView>
+              <List.Item
+                title={place.name}
+                titleNumberOfLines={selected ? 3 : 1}
+                description={selected
+                  ? `${kindLabel(place.kind)} · ${reelCountLabel(place)}`
+                  : [kindLabel(place.kind), place.address].filter(Boolean).join(' · ')}
+                descriptionNumberOfLines={1}
+                left={(props) => <List.Icon {...props} icon={selected ? 'map-marker' : 'map-marker-outline'} />}
+                onPress={() => onPressPlace(place.id)}
+                accessibilityState={{ selected }}
+                accessibilityHint="Shows this place on the map"
+              />
+              {selected
+                ? (
+                  <View style={styles.details}>
+                    {google
+                      ? <Text variant="bodySmall" style={{ color: colors.onSecondaryContainer }}>On Google as {google}</Text>
+                      : null}
+                    {place.address
+                      ? <Text variant="bodySmall" style={{ color: colors.onSecondaryContainer }} selectable>{place.address}</Text>
+                      : null}
+                    <View style={styles.actions}>
+                      <Button mode="contained" icon="play-box-outline" onPress={() => onOpenCapture(place)}>Open reel</Button>
+                      <Button mode="outlined" icon="open-in-new" onPress={() => onOpenInGoogleMaps(place)}>Google Maps</Button>
+                    </View>
+                  </View>
+                )
+                : null}
+            </View>
+          )
+        })}
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  list: { flexGrow: 0 },
+  list: { flexGrow: 0, flexShrink: 1 },
   content: { paddingHorizontal: space.sm, paddingBottom: space.md },
-  header: {
-    fontSize: font.small, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5,
-    paddingHorizontal: space.sm, paddingTop: space.md, paddingBottom: space.xs,
-  },
-  row: { borderRadius: radius.md, borderLeftWidth: 3 },
-  rowHead: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.sm },
-  dot: { width: 10, height: 10, borderRadius: radius.pill },
-  rowText: { flex: 1, gap: 2 },
-  name: { fontSize: font.body, fontWeight: '600' },
-  meta: { fontSize: font.small, lineHeight: 17 },
-  address: { fontSize: font.small, lineHeight: 17 },
-  details: { gap: space.xs, paddingLeft: space.sm + 10 + space.md, paddingRight: space.sm, paddingBottom: space.md },
+  row: { borderRadius: shape.large, overflow: 'hidden' },
+  // Lines the details up with the list item's text, past its leading icon.
+  details: { gap: space.xs, paddingLeft: 56, paddingRight: space.lg, paddingBottom: space.md },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
 })

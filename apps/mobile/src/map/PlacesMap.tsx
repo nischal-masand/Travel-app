@@ -1,6 +1,6 @@
 import 'leaflet/dist/leaflet.css'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { StyleSheet, View, useColorScheme } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet'
 import {
   latLngBounds,
@@ -8,7 +8,7 @@ import {
   type LatLngBoundsExpression,
   type Map as LeafletMap,
 } from 'leaflet'
-import { font, radius, space, useColors, type Colors } from '../theme'
+import { shape, space, useAppTheme, type AppColors } from '../theme'
 import {
   googleMapsUrl, googleNameIfDifferent, kindLabel, pinsKey, reelCountLabel,
 } from './placeText'
@@ -21,7 +21,10 @@ import type { PinnedPlace, PlacesMapProps } from './types'
  *
  * Pins are CircleMarkers rather than Leaflet's default Marker, whose icon
  * images break under bundlers. Every pin here is confirmed, so they are all
- * the accent colour — the green/amber status colours are reserved.
+ * the primary colour — the confirmed and needsCheck roles are reserved.
+ *
+ * Leaflet's popup is plain DOM (see PopupBody), so it can't host Paper
+ * components; it takes the same Material 3 roles, shapes and type scale.
  */
 
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -57,8 +60,9 @@ function fitMap(map: LeafletMap, places: PinnedPlace[], animate: boolean) {
 }
 
 export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: PlacesMapProps) {
-  const c = useColors()
-  const dark = useColorScheme() === 'dark'
+  const theme = useAppTheme()
+  const c = theme.colors
+  const dark = theme.dark
   const mapRef = useRef<LeafletMap | null>(null)
   const markers = useRef(new Map<string, LeafletCircleMarker>())
   const pendingOpen = useRef<(() => void) | null>(null)
@@ -133,9 +137,9 @@ export function PlacesMap({ places, selectedId, onSelect, onOpenCapture, ref }: 
               center={[place.lat, place.lng]}
               radius={selected ? 11 : 8}
               pathOptions={{
-                color: selected ? c.text : c.surface,
+                color: selected ? c.onSurface : c.surface,
                 weight: selected ? 3 : 2,
-                fillColor: c.accent,
+                fillColor: c.primary,
                 fillOpacity: 1,
               }}
               eventHandlers={{ click: () => onSelect(place.id) }}
@@ -204,26 +208,29 @@ function Viewport({ places, fitKey }: { places: PinnedPlace[]; fitKey: string })
  */
 function PopupBody({ place, c, onOpenCapture }: {
   place: PinnedPlace
-  c: Colors
+  c: AppColors
   onOpenCapture: (place: PinnedPlace) => void
 }) {
   const google = googleNameIfDifferent(place)
-  const muted: CSSProperties = { color: c.textMuted, fontSize: font.small, lineHeight: '17px' }
+  // Material 3 bodySmall / titleMedium / labelLarge.
+  const muted: CSSProperties = { color: c.onSurfaceVariant, fontSize: 12, lineHeight: '16px', letterSpacing: 0.4 }
+  // Material 3 common buttons: 40dp tall, fully rounded, labelLarge text.
+  const button: CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', height: 40, padding: `0 ${space.xl}px`,
+    borderRadius: shape.full, fontSize: 14, fontWeight: 500, letterSpacing: 0.1,
+    fontFamily: 'inherit', cursor: 'pointer', textDecoration: 'none', boxSizing: 'border-box',
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: space.xs }}>
-      <div style={{ color: c.text, fontSize: font.title, fontWeight: 600, lineHeight: '22px' }}>{place.name}</div>
+      <div style={{ color: c.onSurface, fontSize: 16, fontWeight: 500, lineHeight: '24px', letterSpacing: 0.15 }}>{place.name}</div>
       {google ? <div style={muted}>On Google as {google}</div> : null}
-      {place.address ? <div style={{ ...muted, color: c.text }}>{place.address}</div> : null}
+      {place.address ? <div style={{ ...muted, color: c.onSurface }}>{place.address}</div> : null}
       <div style={muted}>{kindLabel(place.kind)} · {reelCountLabel(place)}</div>
       <div style={{ display: 'flex', gap: space.sm, marginTop: space.sm, flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => onOpenCapture(place)}
-          style={{
-            background: c.accent, color: c.accentText, border: `1px solid ${c.accent}`,
-            borderRadius: radius.md, padding: `${space.xs + 2}px ${space.md}px`,
-            fontSize: font.small, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-          }}
+          style={{ ...button, background: c.primary, color: c.onPrimary, border: 'none' }}
         >
           Open reel
         </button>
@@ -231,11 +238,7 @@ function PopupBody({ place, c, onOpenCapture }: {
           href={googleMapsUrl(place)}
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            color: c.text, border: `1px solid ${c.border}`, borderRadius: radius.md,
-            padding: `${space.xs + 2}px ${space.md}px`, fontSize: font.small, fontWeight: 600,
-            textDecoration: 'none',
-          }}
+          style={{ ...button, color: c.primary, border: `1px solid ${c.outline}` }}
         >
           Google Maps ↗
         </a>
@@ -245,25 +248,25 @@ function PopupBody({ place, c, onOpenCapture }: {
 }
 
 /** Theme Leaflet's chrome (popup, controls, background) to match the app. */
-function mapCss(c: Colors, dark: boolean): string {
+function mapCss(c: AppColors, dark: boolean): string {
   const scope = `.${MAP_CLASS}`
   return `
 ${scope}.leaflet-container {
-  background: ${c.surfaceAlt};
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: ${c.surfaceVariant};
+  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 ${scope} .leaflet-popup-content-wrapper, ${scope} .leaflet-popup-tip {
-  background: ${c.surface};
-  color: ${c.text};
-  border: 1px solid ${c.border};
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  background: ${c.surfaceContainerHigh};
+  color: ${c.onSurface};
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
 }
-${scope} .leaflet-popup-content-wrapper { border-radius: ${radius.lg}px; }
-${scope} .leaflet-popup-content { margin: ${space.md}px ${space.xl}px ${space.md}px ${space.lg}px; }
-${scope} a.leaflet-popup-close-button { color: ${c.textMuted}; }
-${scope} .leaflet-bar a { background: ${c.surface}; color: ${c.text}; border-bottom-color: ${c.border}; }
-${scope} .leaflet-control-attribution { background: ${c.surface}cc; color: ${c.textMuted}; }
-${scope} .leaflet-control-attribution a { color: ${c.accent}; }
+${scope} .leaflet-popup-content-wrapper { border-radius: ${shape.large}px; }
+${scope} .leaflet-popup-content { margin: ${space.lg}px ${space.xl}px ${space.lg}px ${space.lg}px; }
+${scope} a.leaflet-popup-close-button { color: ${c.onSurfaceVariant}; }
+${scope} .leaflet-bar { border: none; border-radius: ${shape.medium}px; overflow: hidden; box-shadow: 0 1px 3px 1px rgba(0, 0, 0, 0.15); }
+${scope} .leaflet-bar a { background: ${c.surfaceContainerHigh}; color: ${c.onSurface}; border-bottom-color: ${c.outlineVariant}; }
+${scope} .leaflet-control-attribution { background: ${c.surface}cc; color: ${c.onSurfaceVariant}; }
+${scope} .leaflet-control-attribution a { color: ${c.primary}; }
 ${dark ? `${scope} .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }` : ''}
 `
 }

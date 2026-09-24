@@ -7,7 +7,7 @@ import { PlaceList } from '../../src/map/PlaceList'
 import { PlacesMap } from '../../src/map/PlacesMap'
 import { firstCaptureId, googleMapsUrl, isPinned } from '../../src/map/placeText'
 import type { PinnedPlace, PlacesMapHandle } from '../../src/map/types'
-import { useColors } from '../../src/theme'
+import { useAppTheme } from '../../src/theme'
 import { useApi } from '../../src/useApi'
 
 /** At or above this width the list sits beside the map instead of under it. */
@@ -19,7 +19,7 @@ const WIDE_LAYOUT = 768
  * nothing unverified can reach this screen as a pin.
  */
 export default function MapScreen() {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const { width } = useWindowDimensions()
   const wide = width >= WIDE_LAYOUT
   const { data, error, loading, refreshing, refresh, reload } = useApi(() => api.listMapPlaces())
@@ -56,6 +56,7 @@ export default function MapScreen() {
       <View style={styles.fill}>
         {error ? <ErrorBanner error={error} onRetry={reload} /> : null}
         <EmptyState
+          icon="map-marker-off-outline"
           title="No confirmed places yet"
           body="Places appear here once they're confirmed — by the pipeline or by you in the Check tab."
         />
@@ -73,8 +74,8 @@ export default function MapScreen() {
       refreshing={refreshing}
       onRefresh={() => void refresh()}
       style={wide
-        ? [styles.sideList, { borderRightColor: c.border }]
-        : [styles.bottomList, { borderTopColor: c.border }]}
+        ? [styles.sideList, { borderRightColor: colors.outlineVariant }]
+        : [styles.bottomList, { borderTopColor: colors.outlineVariant }]}
     />
   )
 

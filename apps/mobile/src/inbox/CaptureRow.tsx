@@ -1,62 +1,85 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useState } from 'react'
+import { StyleSheet, View } from 'react-native'
+import { Card, IconButton, Menu, ProgressBar, Text } from 'react-native-paper'
 import type { ApiCaptureSummary } from '@reel/shared'
-import { Card } from '../components/ui'
 import { captureByline, relativeTime } from '../format'
-import { font, space, useColors } from '../theme'
+import { space, useAppTheme } from '../theme'
 
 /**
  * One shared reel in the inbox: who posted it, when you shared it, and what
  * the server is doing with it right now — in the server's own words.
+ *
+ * Delete lives in the card's overflow menu, where it can be found on every
+ * platform; a long press opens the same confirmation as a shortcut.
  */
 export function CaptureRow({ capture, onOpen, onDelete }: {
   capture: ApiCaptureSummary
   onOpen: () => void
   onDelete: () => void
 }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
+  const [menuOpen, setMenuOpen] = useState(false)
   // Until the pipeline has looked at the post, author and platform are unknown,
   // so a just-queued row falls back to the link itself.
   const title = captureByline(capture) || shortUrl(capture.url)
   const caption = capture.caption?.trim()
 
   return (
-    <Pressable
+    <Card
       onPress={onOpen}
       onLongPress={onDelete}
-      accessibilityRole="button"
       accessibilityLabel={`${title}. ${statusText(capture)}`}
-      accessibilityHint="Opens the capture. Long-press to delete it."
-      accessibilityActions={[{ name: 'activate' }, { name: 'delete', label: 'Delete' }]}
-      onAccessibilityAction={(e) => {
-        if (e.nativeEvent.actionName === 'delete') onDelete()
-        else onOpen()
-      }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      accessibilityHint="Opens the capture"
     >
-      <Card>
-        <View style={styles.top}>
-          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>{title}</Text>
-          <Text style={[styles.time, { color: c.textFaint }]}>{relativeTime(capture.createdAt)}</Text>
-        </View>
+      <Card.Title
+        title={title}
+        titleVariant="titleMedium"
+        subtitle={relativeTime(capture.createdAt)}
+        subtitleVariant="bodySmall"
+        subtitleStyle={{ color: colors.onSurfaceVariant }}
+        right={() => (
+          <Menu
+            visible={menuOpen}
+            onDismiss={() => setMenuOpen(false)}
+            anchor={
+              <IconButton
+                icon="dots-vertical"
+                accessibilityLabel="More actions"
+                onPress={() => setMenuOpen(true)}
+              />
+            }
+          >
+            <Menu.Item
+              leadingIcon="delete-outline"
+              title="Delete"
+              onPress={() => {
+                setMenuOpen(false)
+                onDelete()
+              }}
+            />
+          </Menu>
+        )}
+      />
+      <Card.Content style={styles.content}>
         {caption
-          ? <Text style={[styles.caption, { color: c.textMuted }]} numberOfLines={2}>{caption}</Text>
+          ? <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }} numberOfLines={2}>{caption}</Text>
           : null}
         <StatusLine capture={capture} />
-      </Card>
-    </Pressable>
+      </Card.Content>
+    </Card>
   )
 }
 
 function StatusLine({ capture }: { capture: ApiCaptureSummary }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   switch (capture.status) {
     case 'queued':
-      return <Text style={[styles.status, { color: c.textMuted }]}>Queued</Text>
+      return <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>Queued</Text>
     case 'running':
       return (
         <View style={styles.running}>
-          <ActivityIndicator size="small" color={c.accent} />
-          <Text style={[styles.status, styles.flex, { color: c.accent }]} numberOfLines={2}>
+          <ProgressBar indeterminate style={styles.progress} />
+          <Text variant="bodySmall" style={{ color: colors.primary }} numberOfLines={2}>
             {capture.step ?? 'Starting'}
           </Text>
         </View>
@@ -65,17 +88,17 @@ function StatusLine({ capture }: { capture: ApiCaptureSummary }) {
       // Verbatim: "quota exhausted" and "this post is private" need different
       // responses from the user, so the provider's own words are shown.
       return (
-        <Text style={[styles.status, { color: c.danger }]} numberOfLines={4}>
+        <Text variant="bodySmall" style={{ color: colors.error }} numberOfLines={4}>
           {capture.error ?? 'Failed (the server gave no reason)'}
         </Text>
       )
     case 'done': {
       const checks = capture.needsCheckCount
       return (
-        <Text style={[styles.status, { color: c.text }]}>
+        <Text variant="labelLarge">
           {placesText(capture.placeCount)}
           {checks > 0
-            ? <Text style={{ color: c.needsCheck, fontWeight: '600' }}>{` · ${checks} to check`}</Text>
+            ? <Text variant="labelLarge" style={{ color: colors.needsCheck }}>{` · ${checks} to check`}</Text>
             : null}
         </Text>
       )
@@ -106,11 +129,7 @@ function shortUrl(url: string): string {
 }
 
 const styles = StyleSheet.create({
-  top: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
-  title: { flex: 1, fontSize: font.body, fontWeight: '600' },
-  time: { fontSize: font.small },
-  caption: { fontSize: font.small, lineHeight: 17 },
-  status: { fontSize: font.small, lineHeight: 17 },
-  running: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  flex: { flex: 1 },
+  content: { gap: space.sm },
+  running: { gap: space.sm },
+  progress: { borderRadius: 2 },
 })

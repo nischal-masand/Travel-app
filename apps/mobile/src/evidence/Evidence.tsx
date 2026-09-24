@@ -1,9 +1,8 @@
-import type { ComponentProps } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
+import { StyleSheet, View } from 'react-native'
+import { Icon, Text } from 'react-native-paper'
 import type { ApiMention, SourceType } from '@reel/shared'
 import { sourceLabel, timestamp } from '../format'
-import { font, space, useColors } from '../theme'
+import { space, useAppTheme } from '../theme'
 import { ClipButton } from './ClipButton'
 import { EvidenceFrame, FrameLink } from './EvidenceFrame'
 
@@ -12,10 +11,10 @@ import { EvidenceFrame, FrameLink } from './EvidenceFrame'
  * The quote is the proof, so it is always shown verbatim and never paraphrased.
  */
 
-const SOURCE_ICON: Record<SourceType, ComponentProps<typeof Ionicons>['name']> = {
-  transcript: 'mic-outline',
-  onScreenText: 'text-outline',
-  caption: 'document-text-outline',
+const SOURCE_ICON: Record<SourceType, string> = {
+  transcript: 'microphone-outline',
+  onScreenText: 'text-recognition',
+  caption: 'text-box-outline',
 }
 
 /** "said · 0:21", "on screen · 0:53", "caption". */
@@ -25,11 +24,13 @@ export function sourceLine(sourceType: SourceType, seconds: number | null): stri
 }
 
 export function SourceLine({ sourceType, seconds }: { sourceType: SourceType; seconds: number | null }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   return (
     <View style={styles.source}>
-      <Ionicons name={SOURCE_ICON[sourceType]} size={13} color={c.textMuted} />
-      <Text style={[styles.sourceText, { color: c.textMuted }]}>{sourceLine(sourceType, seconds)}</Text>
+      <Icon source={SOURCE_ICON[sourceType]} size={16} color={colors.onSurfaceVariant} />
+      <Text variant="labelMedium" style={[styles.tabular, { color: colors.onSurfaceVariant }]}>
+        {sourceLine(sourceType, seconds)}
+      </Text>
     </View>
   )
 }
@@ -40,17 +41,17 @@ export function SourceLine({ sourceType, seconds }: { sourceType: SourceType; se
  * never a corrected spelling.
  */
 export function Quote({ text, highlight }: { text: string; highlight?: string }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const at = highlight ? findIn(text, highlight) : -1
   return (
-    <View style={[styles.quoteWrap, { borderLeftColor: c.border }]}>
-      <Text style={[styles.quote, { color: c.text }]} selectable>
+    <View style={[styles.quoteWrap, { borderLeftColor: colors.outlineVariant }]}>
+      <Text variant="bodyMedium" selectable>
         “
         {at >= 0 && highlight
           ? (
             <>
               {text.slice(0, at)}
-              <Text style={styles.quoteMark}>{text.slice(at, at + highlight.length)}</Text>
+              <Text variant="bodyMedium" style={styles.mark}>{text.slice(at, at + highlight.length)}</Text>
               {text.slice(at + highlight.length)}
             </>
           )
@@ -124,10 +125,9 @@ export function EvidenceFooter({ captureId, sourceType, seconds, quote }: {
 
 const styles = StyleSheet.create({
   source: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  sourceText: { fontSize: font.small, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  tabular: { fontVariant: ['tabular-nums'] },
   quoteWrap: { borderLeftWidth: 2, paddingLeft: space.sm },
-  quote: { fontSize: font.body, lineHeight: 21 },
-  quoteMark: { fontWeight: '700' },
+  mark: { fontWeight: '700' },
   // Wraps: a portrait frame sits beside its text, a landscape one above it.
   mention: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, alignItems: 'flex-start' },
   mentionText: { flexGrow: 1, flexShrink: 1, flexBasis: 160, gap: space.sm },

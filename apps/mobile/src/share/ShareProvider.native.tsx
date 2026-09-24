@@ -1,8 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Alert } from 'react-native'
 import { router, useRootNavigationState } from 'expo-router'
 import { ShareIntentProvider, useShareIntentContext, type ShareIntent } from 'expo-share-intent'
 import { api, ApiRequestError } from '../api'
+import { showDialog } from '../components/dialogs'
 import { extractSupportedUrl } from './extractUrl'
 import { shareStatus } from './shareStatus'
 
@@ -84,7 +84,7 @@ function ShareHandler() {
     if (!error) { shownError.current = null; return }
     if (shownError.current === error) return
     shownError.current = error
-    Alert.alert("Couldn't read what was shared", error)
+    showDialog({ title: "Couldn't read what was shared", body: error })
   }, [error])
 
   return null
@@ -106,7 +106,7 @@ async function send(url: string) {
     const message = err instanceof ApiRequestError && err.detail
       ? `${err.message}\n\n${err.detail}`
       : err instanceof Error ? err.message : String(err)
-    Alert.alert("Couldn't add the shared link", `${message}\n\n${url}`)
+    showDialog({ title: "Couldn't add the shared link", body: `${message}\n\n${url}` })
   }
 }
 
@@ -128,8 +128,8 @@ function explainUnsupportedShare(shared: ShareIntent) {
     : gotOtherLink
       ? `That link isn't one Reel Trip can read:\n${shared.webUrl}`
       : "That share didn't include a link."
-  Alert.alert(
-    'No reel link found',
-    `${what}\n\nReel Trip works with Instagram posts and reels, YouTube videos and Shorts, and TikTok videos. Use the app's Share button on the post and pick Reel Trip, or copy the link and paste it in the Inbox.`,
-  )
+  showDialog({
+    title: 'No reel link found',
+    body: `${what}\n\nReel Trip works with Instagram posts and reels, YouTube videos and Shorts, and TikTok videos. Use the app's Share button on the post and pick Reel Trip, or copy the link and paste it in the Inbox.`,
+  })
 }

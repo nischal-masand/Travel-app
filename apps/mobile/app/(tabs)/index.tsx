@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Platform, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Platform, RefreshControl, StyleSheet, View } from 'react-native'
 import { router } from 'expo-router'
+import { ActivityIndicator, Card } from 'react-native-paper'
 import type { ApiCaptureSummary } from '@reel/shared'
 import { api } from '../../src/api'
-import { Card, EmptyState, ErrorBanner, Loading } from '../../src/components/ui'
+import { showDialog } from '../../src/components/dialogs'
+import { EmptyState, ErrorBanner, Loading } from '../../src/components/ui'
 import { AddLinkBox } from '../../src/inbox/AddLinkBox'
 import { CaptureRow } from '../../src/inbox/CaptureRow'
 import { useShareStatus } from '../../src/share/shareStatus'
-import { font, space, useColors } from '../../src/theme'
+import { space, useAppTheme } from '../../src/theme'
 import { useApi } from '../../src/useApi'
 
 /**
@@ -17,7 +19,7 @@ import { useApi } from '../../src/useApi'
  * re-fetches on an interval; once everything has settled it stops asking.
  */
 export default function InboxScreen() {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const inbox = useApi(() => api.listCaptures(), {
     pollWhile: (list) => list.some((x) => x.status === 'queued' || x.status === 'running'),
   })
@@ -33,17 +35,28 @@ export default function InboxScreen() {
   }, [share.added])
 
   function remove(capture: ApiCaptureSummary) {
-    confirmDelete(async () => {
-      setActionError(null)
-      inbox.setData((list) => list?.filter((x) => x.id !== capture.id))
-      try {
-        await api.deleteCapture(capture.id)
-      } catch (err) {
-        setActionError(err instanceof Error ? err : new Error(String(err)))
-      }
-      // Either way, show what the server now has — which restores the row if
-      // the delete didn't go through.
-      void inbox.reload()
+    showDialog({
+      title: 'Delete this reel?',
+      body: 'Its places, tips and evidence are removed from Reel Trip. The original post is not affected.',
+      actions: [
+        { label: 'Cancel' },
+        {
+          label: 'Delete',
+          destructive: true,
+          onPress: async () => {
+            setActionError(null)
+            inbox.setData((list) => list?.filter((x) => x.id !== capture.id))
+            try {
+              await api.deleteCapture(capture.id)
+            } catch (err) {
+              setActionError(err instanceof Error ? err : new Error(String(err)))
+            }
+            // Either way, show what the server now has — which restores the
+            // row if the delete didn't go through.
+            void inbox.reload()
+          },
+        },
+      ],
     })
   }
 
@@ -79,6 +92,7 @@ export default function InboxScreen() {
           : inbox.error ? null
           : (
             <EmptyState
+              icon="inbox-arrow-down"
               title="No reels yet"
               body={Platform.OS === 'web'
                 ? 'Paste an Instagram, YouTube or TikTok link above and Reel Trip will find the places in it.'
@@ -88,53 +102,38 @@ export default function InboxScreen() {
       }
       ListFooterComponent={<View style={styles.footer} />}
       refreshControl={
-        <RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh()} tintColor={c.accent} colors={[c.accent]} />
+        <RefreshControl
+          refreshing={inbox.refreshing}
+          onRefresh={() => void inbox.refresh()}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+          progressBackgroundColor={colors.surfaceContainerHigh}
+        />
       }
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.content}
-      style={{ backgroundColor: c.bg }}
+      style={{ backgroundColor: colors.background }}
     />
   )
 }
 
 /** A link arriving from the share sheet, before the server has answered. */
 function SendingRow({ url }: { url: string }) {
-  const c = useColors()
   return (
     <View style={styles.item}>
-      <Card>
-        <View style={styles.sending}>
-          <ActivityIndicator size="small" color={c.accent} />
-          <Text style={[styles.sendingText, { color: c.text }]}>Adding the link you shared</Text>
-        </View>
-        <Text style={[styles.sendingUrl, { color: c.textMuted }]} numberOfLines={1}>{url}</Text>
+      <Card mode="contained">
+        <Card.Title
+          title="Adding the link you shared"
+          subtitle={url}
+          left={() => <ActivityIndicator size="small" />}
+        />
       </Card>
     </View>
   )
-}
-
-/**
- * Alert.alert with buttons does nothing on react-native-web, so the web gets
- * the browser's own confirm dialog.
- */
-function confirmDelete(onConfirm: () => void) {
-  const title = 'Delete this reel?'
-  const body = 'Its places, tips and evidence are removed from Reel Trip. The original post is not affected.'
-  if (Platform.OS === 'web') {
-    if (window.confirm(`${title}\n\n${body}`)) onConfirm()
-    return
-  }
-  Alert.alert(title, body, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: onConfirm },
-  ])
 }
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1 },
   item: { paddingHorizontal: space.lg, paddingTop: space.md },
   footer: { height: space.xl },
-  sending: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  sendingText: { fontSize: font.body, fontWeight: '600' },
-  sendingUrl: { fontSize: font.small },
 })

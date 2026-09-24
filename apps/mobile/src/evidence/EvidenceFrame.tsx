@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Modal, StyleSheet, View } from 'react-native'
 import { Image } from 'expo-image'
-import { Ionicons } from '@expo/vector-icons'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Appbar, Button, Icon, Surface, Text, TouchableRipple } from 'react-native-paper'
 import { evidence } from '../api'
 import { timestamp } from '../format'
-import { font, radius, space, useColors } from '../theme'
+import { shape, space, useAppTheme } from '../theme'
 
 /**
  * The still at the moment a place was named, cut from the stored video by the
@@ -29,7 +28,7 @@ export function EvidenceFrame({ captureId, seconds, title, quote }: {
   /** The verbatim quote, shown under the enlarged frame to compare against. */
   quote?: string
 }) {
-  const c = useColors()
+  const { colors } = useAppTheme()
   const uri = evidence.frameUrl(captureId, seconds)
   const [failedUri, setFailedUri] = useState<string | null>(null)
   const [aspect, setAspect] = useState(9 / 16)
@@ -43,29 +42,32 @@ export function EvidenceFrame({ captureId, seconds, title, quote }: {
 
   return (
     <>
-      <Pressable
+      <TouchableRipple
         onPress={() => setOpen(true)}
+        borderless
+        style={styles.thumbTouch}
         accessibilityRole="imagebutton"
         accessibilityLabel={`Frame at ${timestamp(seconds)}. Tap to enlarge.`}
-        style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
       >
-        <Image
-          source={{ uri }}
-          style={[size, styles.thumb, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-          contentFit="contain"
-          transition={150}
-          recyclingKey={uri}
-          onLoad={(e) => {
-            const { width, height } = e.source
-            if (width > 0 && height > 0) setAspect(width / height)
-          }}
-          onError={() => setFailedUri(uri)}
-        />
-        <View style={[styles.stamp, { backgroundColor: c.surface }]}>
-          <Ionicons name="expand-outline" size={11} color={c.text} />
-          <Text style={[styles.stampText, { color: c.text }]}>{timestamp(seconds)}</Text>
+        <View>
+          <Image
+            source={{ uri }}
+            style={[size, styles.thumb, { backgroundColor: colors.surfaceVariant }]}
+            contentFit="contain"
+            transition={150}
+            recyclingKey={uri}
+            onLoad={(e) => {
+              const { width, height } = e.source
+              if (width > 0 && height > 0) setAspect(width / height)
+            }}
+            onError={() => setFailedUri(uri)}
+          />
+          <Surface elevation={0} style={[styles.stamp, { backgroundColor: colors.inverseSurface }]}>
+            <Icon source="arrow-expand" size={12} color={colors.inverseOnSurface} />
+            <Text variant="labelSmall" style={[styles.tabular, { color: colors.inverseOnSurface }]}>{timestamp(seconds)}</Text>
+          </Surface>
         </View>
-      </Pressable>
+      </TouchableRipple>
       <FrameViewer uri={uri} visible={open} onClose={() => setOpen(false)} title={title} quote={quote} />
     </>
   )
@@ -82,20 +84,18 @@ export function FrameLink({ captureId, seconds, title, quote }: {
   title: string
   quote?: string
 }) {
-  const c = useColors()
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Pressable
+      <Button
+        mode="outlined"
+        compact
+        icon="image-outline"
         onPress={() => setOpen(true)}
-        accessibilityRole="button"
         accessibilityLabel={`See the frame at ${timestamp(seconds)}`}
-        hitSlop={8}
-        style={({ pressed }) => [styles.link, { borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
       >
-        <Ionicons name="image-outline" size={13} color={c.text} />
-        <Text style={[styles.linkText, { color: c.text }]}>See frame</Text>
-      </Pressable>
+        See frame
+      </Button>
       <FrameViewer
         uri={evidence.frameUrl(captureId, seconds)}
         visible={open}
@@ -107,6 +107,7 @@ export function FrameLink({ captureId, seconds, title, quote }: {
   )
 }
 
+/** A Material 3 full-screen dialog: app bar with close, the frame, the quote. */
 function FrameViewer({ uri, visible, onClose, title, quote }: {
   uri: string
   visible: boolean
@@ -114,39 +115,32 @@ function FrameViewer({ uri, visible, onClose, title, quote }: {
   title: string
   quote?: string
 }) {
-  const c = useColors()
-  const insets = useSafeAreaInsets()
+  const { colors } = useAppTheme()
   const [failedUri, setFailedUri] = useState<string | null>(null)
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <View
-        style={[
-          styles.viewer,
-          { backgroundColor: c.bg, paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.lg },
-        ]}
-      >
-        <View style={styles.viewerBar}>
-          <Text style={[styles.viewerTitle, { color: c.textMuted }]}>{title}</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={12}>
-            <Ionicons name="close" size={26} color={c.text} />
-          </Pressable>
-        </View>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={[styles.viewer, { backgroundColor: colors.background }]}>
+        <Appbar.Header mode="small">
+          <Appbar.Action icon="close" onPress={onClose} accessibilityLabel="Close" />
+          <Appbar.Content title={title} />
+        </Appbar.Header>
         {failedUri === uri
           ? (
-            <View style={styles.viewerMissing}>
-              <Text style={[styles.viewerMissingText, { color: c.textMuted }]}>
+            <View style={styles.missing}>
+              <Icon source="image-off-outline" size={48} color={colors.onSurfaceVariant} />
+              <Text variant="bodyMedium" style={[styles.center, { color: colors.onSurfaceVariant }]}>
                 This frame isn't available any more — the video it came from is no longer stored.
               </Text>
             </View>
           )
           : (
-            <Pressable style={styles.viewerImageWrap} onPress={onClose} accessibilityLabel="Close">
-              <Image source={{ uri }} style={styles.viewerImage} contentFit="contain" onError={() => setFailedUri(uri)} />
-            </Pressable>
+            <View style={styles.imageWrap}>
+              <Image source={{ uri }} style={styles.image} contentFit="contain" onError={() => setFailedUri(uri)} />
+            </View>
           )}
         {quote
-          ? <Text style={[styles.viewerQuote, { color: c.text }]} selectable>“{quote}”</Text>
+          ? <Text variant="bodyLarge" style={[styles.center, styles.quote]} selectable>“{quote}”</Text>
           : null}
       </View>
     </Modal>
@@ -154,24 +148,18 @@ function FrameViewer({ uri, visible, onClose, title, quote }: {
 }
 
 const styles = StyleSheet.create({
-  thumb: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth },
+  thumbTouch: { borderRadius: shape.medium, alignSelf: 'flex-start' },
+  thumb: { borderRadius: shape.medium },
   stamp: {
     position: 'absolute', left: space.xs, bottom: space.xs,
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    paddingHorizontal: space.xs + 2, paddingVertical: 2, borderRadius: radius.pill, opacity: 0.9,
+    paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: shape.full,
   },
-  stampText: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  link: {
-    flexDirection: 'row', alignItems: 'center', gap: space.xs,
-    minHeight: 32, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1,
-  },
-  linkText: { fontSize: font.small, fontWeight: '600' },
-  viewer: { flex: 1, paddingHorizontal: space.lg, gap: space.md },
-  viewerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  viewerTitle: { fontSize: font.body, fontWeight: '600' },
-  viewerImageWrap: { flex: 1 },
-  viewerImage: { flex: 1, width: '100%' },
-  viewerMissing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl },
-  viewerMissingText: { fontSize: font.body, textAlign: 'center', lineHeight: 21 },
-  viewerQuote: { fontSize: font.body, lineHeight: 22, textAlign: 'center' },
+  tabular: { fontVariant: ['tabular-nums'] },
+  viewer: { flex: 1 },
+  imageWrap: { flex: 1, paddingHorizontal: space.lg },
+  image: { flex: 1, width: '100%' },
+  missing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.md },
+  center: { textAlign: 'center' },
+  quote: { padding: space.lg, paddingBottom: space.xxl },
 })
