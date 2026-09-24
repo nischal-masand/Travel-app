@@ -22,6 +22,8 @@ const SOURCE_RANK: Record<SourceType, number> = {
 
 const compact = (s: string) => normalizeForMatch(s).replace(/[^\p{L}\p{N}]/gu, '')
 
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u
+
 /**
  * ASR errors are SOUND-alike errors, so phonetic codes are the right tool.
  * Plain string distance files "noosa peneeda" and "Nusa Penida" as different
@@ -79,6 +81,21 @@ export function matchStrength(a: string, b: string): MatchStrength {
   // Shibuya". Two or more tokens is distinctive enough to call it one place.
   // ONE token is not — that is how "Beach" gets swallowed by "Kelingking Beach"
   // and "Ultraman" by "ULTRAMAN STREET".
+  // Japanese and Chinese are written without spaces, so "伊豆大島" is a single
+  // "word" and token containment can never see "大島" inside it — the match
+  // failed outright where the English equivalent ("Izu Oshima" / "Oshima")
+  // came back as a suggestion. Character containment restores parity, with the
+  // same grades: a shared leading run is 'prefix', anywhere else is 'loose'.
+  // Never 'strong': a dropped or added qualifier is a real ambiguity (Japan has
+  // many Ōshimas), so these reach the user as suggestions, not confirmations.
+  if (CJK.test(ca) || CJK.test(cb)) {
+    const [short, long] = ca.length <= cb.length ? [ca, cb] : [cb, ca]
+    if (short.length >= 2 && short !== long) {
+      if (long.startsWith(short)) return 'prefix'
+      if (long.includes(short)) return 'loose'
+    }
+  }
+
   const contained = tokenContainment(a, b)
   if (contained === 'multi') return 'strong'
   // A single shared token is graded by WHERE it sits. Place names lead with the

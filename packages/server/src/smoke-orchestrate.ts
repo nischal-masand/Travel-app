@@ -8,8 +8,8 @@
  *
  *   npm run smoke:orchestrate -w @reel/server
  */
-import type { EvidenceBundle } from '@reel/shared'
-import { extract, isRegion } from './extract/index.ts'
+import type { EvidenceBundle, Place } from '@reel/shared'
+import { extract, isRegion, mergeSameGooglePlace } from './extract/index.ts'
 import { createGeocodeCache } from './extract/geocode.ts'
 import type { ModelRequest } from './extract/interpret.ts'
 
@@ -139,6 +139,58 @@ check('...and the drop is recorded, not silent', invented.rejected.length === 1,
 const before = googleCalls
 await extract(bundle, { interpretCall: fakeModel, geocode: false })
 check('geocode: false makes no Google calls', googleCalls === before)
+
+section('SEEN, NEVER SAID')
+// A shop sign in the background is real and geocodes cleanly — but nobody
+// recommended it. On-screen-only places go to the tray, not onto the map.
+const signBundle = {
+  ...bundle,
+  caption: { text: 'Coffee crawl', hashtags: [], locationTag: null },
+  transcript: { ...(bundle.transcript as object), text: 'Right here in Ebisu is Janai Coffee.' },
+  onScreenText: [{ text: 'JANAI COFFEE', atSeconds: 44, frameRef: 'a.jpg' }, { text: 'Foot Spa Ebisu', atSeconds: 47, frameRef: 'b.jpg' }],
+} as unknown as EvidenceBundle
+replies.caption = { mentions: [], tips: [], facts: [], destination: null }
+replies.transcript = { mentions: [{ rawName: 'Janai Coffee', sourceQuote: 'Right here in Ebisu is Janai Coffee' }], tips: [], facts: [], destination: null }
+replies.onScreenText = {
+  mentions: [
+    { rawName: 'JANAI COFFEE', sourceQuote: 'JANAI COFFEE' },
+    { rawName: 'Foot Spa Ebisu', sourceQuote: 'Foot Spa Ebisu' },
+  ],
+  tips: [], facts: [], destination: null,
+}
+google['foot spa ebisu'] = { name: 'Foot Spa Ebisu', types: ['spa', 'establishment'] }
+const signs = await extract(signBundle, {
+  interpretCall: fakeModel,
+  geocode: { apiKey: 'test', fetch: fakeFetch as never, cache: createGeocodeCache() },
+})
+const spa = signs.places.find((p) => p.name === 'Foot Spa Ebisu')
+const cafe = signs.places.find((p) => /janai/i.test(p.name))
+check('a place seen ONLY on screen goes to the tray, even when Google confirms it',
+  spa?.status === 'needs_check', spa?.status ?? 'missing')
+check('...keeping its coordinates as a candidate for you to judge', spa?.lat !== null && spa?.lat !== undefined)
+check('on screen AND said aloud is two witnesses, and confirmed', cafe?.status === 'confirmed' && cafe?.confidence === 'high',
+  `${cafe?.status}/${cafe?.confidence}`)
+
+section('ONE PLACE, TWO SCRIPTS')
+// A bilingual caption listed every island twice: "Chichijima" and "父島" share no
+// letters or sounds, so only Google's place id can tell they are one place.
+const mk = (name: string, status: 'confirmed' | 'needs_check', gid: string | null, source = 'caption'): Place => ({
+  id: name, name, kind: 'other', whyGo: null, timeNeeded: null, bestTime: null,
+  mentions: [{ rawName: name, sourceQuote: name, sourceType: source as 'caption', sourceSeconds: null, asrConfidence: null }],
+  facts: [], tips: [], status, confidence: 'medium', placeId: gid,
+  lat: gid ? 27.09 : null, lng: gid ? 142.19 : null, canonicalName: null, address: null,
+})
+const twoScripts = mergeSameGooglePlace([mk('父島', 'confirmed', 'G1'), mk('Chichijima', 'confirmed', 'G1')])
+check('two confirmed names for one Google place become one place', twoScripts.length === 1, String(twoScripts.length))
+check('...named in the script the user reads', twoScripts[0]?.name === 'Chichijima', twoScripts[0]?.name ?? '')
+check('...keeping both spellings as evidence', twoScripts[0]?.mentions.length === 2)
+check('one source in two scripts is not two witnesses', twoScripts[0]?.confidence === 'medium')
+const witnesses = mergeSameGooglePlace([mk('父島', 'confirmed', 'G1', 'onScreenText'), mk('Chichijima', 'confirmed', 'G1')])
+check('two independent sources that merge are high confidence', witnesses[0]?.confidence === 'high')
+check('two unverified guesses at one Google place are NOT merged',
+  mergeSameGooglePlace([mk('Yurari', 'needs_check', 'G2'), mk('Fuji Yurari', 'needs_check', 'G2')]).length === 2)
+check('different places are untouched',
+  mergeSameGooglePlace([mk('A', 'confirmed', 'G1'), mk('B', 'confirmed', 'G2')]).length === 2)
 
 console.log(failures === 0 ? '\n\x1b[32mall good\x1b[0m' : `\n\x1b[31m${failures} failed\x1b[0m`)
 process.exit(failures === 0 ? 0 : 1)

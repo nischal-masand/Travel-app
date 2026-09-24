@@ -118,7 +118,11 @@ Return a single JSON object and nothing else.`
 const SOURCE_BRIEF: Record<SourceType, string> = {
   caption: "the caption the creator typed, followed by the hashtags and the post's own location tag. Spelling here is deliberate and correct, so preserve it.",
   transcript: "an automatic transcription of the speech. It is a machine's guess at sounds, so proper nouns are frequently misspelled and sentences run together. Quote the misspelling exactly as it appears.",
-  onScreenText: 'text burned into the video frames: overlays, stickers, signage, menus, price boards. It may be fragmentary.',
+  // Overlays wrap at arbitrary points. Without this, 'Beach Swing' / 'Yurari'
+  // on two lines came back as two places, and 'Yurari' alone matched a hot
+  // spring near Mt Fuji. The quote check ignores line breaks, so a quote that
+  // joins the lines still verifies against the evidence.
+  onScreenText: 'text burned into the video frames: overlays, stickers, signage, menus, price boards. It may be fragmentary. Overlay text wraps at arbitrary points, so ONE name is often split across two consecutive lines (e.g. "Beach Swing" then "Yurari" is the single name "Beach Swing Yurari"). When consecutive lines read as one name, report it once, as the whole name, quoting both lines together; line breaks are ignored when your quote is checked.',
 }
 
 const PROFILE_BRIEF: Record<Profile, string> = {

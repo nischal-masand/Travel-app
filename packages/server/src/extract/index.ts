@@ -4,7 +4,10 @@ import { CaptureResult as CaptureResultSchema } from '@reel/shared'
 import { interpret, type ModelCall, type OnRetry, type Profile } from './interpret.ts'
 import { verifyMentions, verifyQuotes, type Rejection } from './verify.ts'
 import { attachToClusters, clusterMentions, samePlace, type Cluster } from './reconcile.ts'
-import { geocode, locationFrom, type GeocodeHit, type GeocodeOpts } from './geocode.ts'
+import { geocode, isRegion, locationFrom, type GeocodeHit, type GeocodeOpts } from './geocode.ts'
+
+// Lives with the geocoder, which needs it to decide what a bare query may trust.
+export { isRegion }
 
 /**
  * STAGE B + C — evidence in, verified places out.
@@ -27,22 +30,6 @@ export interface ExtractOpts {
   onRetry?: OnRetry
   /** Replace the model call — for running the whole stage offline in tests. */
   interpretCall?: ModelCall
-}
-
-/**
- * Google's own labels for places that CONTAIN a trip rather than being a stop
- * on it. Checked against the live API: "Japan" is `country`, "Tokyo" and "Bali"
- * are `administrative_area_level_1`. Pinning them put a dot in the middle of a
- * country on the map and a "confirmed place" in the tray that nobody can visit.
- *
- * `locality` is deliberately NOT here. Kyoto, Ubud and Shinjuku all come back as
- * locality, and in a multi-city trip those are real stops — dropping them would
- * throw away the itinerary's skeleton.
- */
-const REGION_TYPES = new Set(['country', 'administrative_area_level_1'])
-
-export function isRegion(types: string[] | undefined): boolean {
-  return (types ?? []).some((t) => REGION_TYPES.has(t))
 }
 
 /**
@@ -146,6 +133,13 @@ export async function extract(
     places.push(buildPlace(bundle, cluster, hit, { tips: clusterTips, facts: clusterFacts }))
   }
 
+  const merged = mergeSameGooglePlace(places)
+  if (merged.length < places.length) {
+    onProgress('reconcile', `${places.length - merged.length} duplicate(s) merged — same place, different script`)
+  }
+  places.length = 0
+  places.push(...merged)
+
   const confirmed = places.filter((p) => p.status === 'confirmed').length
   onProgress('geocode', `${confirmed} confirmed, ${places.length - confirmed} need your check`
     + (region ? ` · region: ${region.name}` : ''))
@@ -164,6 +158,54 @@ export async function extract(
     // "the model said it but could not back it up".
     rejected: rejected.map((r) => ({ reason: `${r.reason} [${r.sourceType}] "${r.quote.slice(0, 80)}"`, item: r.item })),
   })
+}
+
+const NON_LATIN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u
+
+/**
+ * Two confirmed places that Google resolved to the SAME place are one place.
+ *
+ * Name matching cannot see that "Chichijima" and "父島" are one island — they
+ * share no letters and no sounds a phonetic code could catch — so a bilingual
+ * caption listed every place twice. Google can: both resolve to one place id.
+ *
+ * Only CONFIRMED places merge. Two loose guesses pointing at the same Google
+ * result are two unverified claims, and folding them together would make one
+ * look better supported than either is.
+ *
+ * The merged place keeps the Latin-script name, since that is the one the user
+ * reads; the other spelling survives as a mention, with its evidence intact.
+ */
+export function mergeSameGooglePlace(places: Place[]): Place[] {
+  const out: Place[] = []
+  const byGoogleId = new Map<string, Place>()
+
+  for (const place of places) {
+    const gid = place.status === 'confirmed' ? place.placeId : null
+    const existing = gid ? byGoogleId.get(gid) : undefined
+    if (!gid || !existing) {
+      out.push(place)
+      if (gid) byGoogleId.set(gid, place)
+      continue
+    }
+
+    const keepName = NON_LATIN.test(existing.name) && !NON_LATIN.test(place.name) ? place.name : existing.name
+    const mentionsAll = [...existing.mentions, ...place.mentions]
+    const merged: Place = {
+      ...existing,
+      name: keepName,
+      mentions: mentionsAll,
+      tips: [...existing.tips, ...place.tips],
+      facts: [...existing.facts, ...place.facts],
+      // Two independent witnesses (caption and on-screen, say) is the definition
+      // of high confidence; one source named twice in two scripts is not.
+      confidence: new Set(mentionsAll.map((m) => m.sourceType)).size >= 2 ? 'high' : existing.confidence,
+    }
+    out[out.indexOf(existing)] = merged
+    byGoogleId.set(gid, merged)
+  }
+
+  return out
 }
 
 /**
@@ -203,7 +245,19 @@ function buildPlace(
   hit: GeocodeHit | null,
   extras: { tips: Tip[]; facts: Fact[] },
 ): Place {
-  const location = locationFrom(cluster, hit)
+  let location = locationFrom(cluster, hit)
+
+  // Seen, never said. The camera reads shop signs in the background as readily
+  // as the creator's own overlays — a live capture confirmed a foot-massage
+  // shop whose sign happened to be in shot. A place whose ONLY evidence is text
+  // on a frame may be real and still not be a recommendation, so it goes to you
+  // with its frame rather than straight onto the map. Coordinates are kept: the
+  // candidate is shown, just not vouched for.
+  const onScreenOnly = cluster.sources.length === 1 && cluster.sources[0] === 'onScreenText'
+  if (onScreenOnly && location.status === 'confirmed') {
+    location = { ...location, status: 'needs_check', confidence: 'low' }
+  }
+
   return {
     id: placeIdFor(bundle.captureId, cluster.name),
     name: cluster.name,

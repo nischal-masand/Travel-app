@@ -8,7 +8,7 @@
  *   npm run smoke:extract -w @reel/server
  */
 import type { EvidenceBundle, Mention } from '@reel/shared'
-import { clusterMentions, samePlace, attachToClusters } from './extract/reconcile.ts'
+import { clusterMentions, samePlace, attachToClusters, matchStrength } from './extract/reconcile.ts'
 import { normalizeForMatch, verifyMentions, verifyQuotes } from './extract/verify.ts'
 
 let failures = 0
@@ -100,6 +100,13 @@ check('rejects a quote claiming an empty source',
   verifyQuotes([{ sourceQuote: 'anything', sourceType: 'onScreenText' as const }],
     { ...bundle, onScreenText: [] } as EvidenceBundle).rejected.length === 1)
 
+// Overlay text wraps: "Beach Swing" / "Yurari" is one name on two lines. A
+// quote joining them must verify, or the model is pushed into splitting names.
+check('a quote spanning a wrapped overlay line still verifies',
+  verifyQuotes([{ sourceQuote: 'Beach Swing Yurari', sourceType: 'onScreenText' as const }],
+    { ...bundle, onScreenText: [{ text: 'This is still Kyoto\nBeach Swing\nYurari', atSeconds: 11, frameRef: 'f.jpg' }] } as EvidenceBundle,
+  ).kept.length === 1)
+
 // --- clustering -------------------------------------------------------------
 console.log('\n\x1b[1mRECONCILIATION\x1b[0m')
 
@@ -121,6 +128,18 @@ check('does NOT merge on a shared trailing word',
   !samePlace('Beach', 'Kelingking Beach') && !samePlace('Coffee', 'Janai Coffee'))
 check('does NOT merge two places sharing a leading word',
   !samePlace('Kelingking Beach', 'Kelingking Viewpoint'))
+
+// Japanese has no spaces, so word-based containment saw "伊豆大島" as one
+// unbreakable word and every qualifier Google dropped or added was a flat miss.
+check('a CJK name Google extends is a prefix suggestion', matchStrength('美山', '美山かやぶきの里') === 'prefix',
+  matchStrength('美山', '美山かやぶきの里'))
+check('a CJK name Google shortens is a loose suggestion', matchStrength('伊豆大島', '大島') === 'loose',
+  matchStrength('伊豆大島', '大島'))
+check('...which is never enough to merge two mentions', !samePlace('伊豆大島', '大島'))
+check('identical CJK names are exact', matchStrength('父島', '父島') === 'exact')
+check('sharing one character is not a match (東京 is not 京都)', matchStrength('東京', '京都') === 'none',
+  matchStrength('東京', '京都'))
+check('a single character is never enough', matchStrength('島', '父島') === 'none', matchStrength('島', '父島'))
 
 const clusters = clusterMentions([
   mention({ rawName: 'noosa peneeda', sourceType: 'transcript', sourceSeconds: 4 }),

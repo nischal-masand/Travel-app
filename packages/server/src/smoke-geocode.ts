@@ -10,6 +10,8 @@
  */
 import {
   confidenceFor,
+  gradeMatch,
+  languageFor,
   createGeocodeCache,
   geocode,
   geocodeCluster,
@@ -37,6 +39,7 @@ interface Call {
   pageSize: number
   fieldMask: string
   apiKey: string
+  languageCode: string
 }
 
 /** A place object shaped exactly like Text Search (New) returns one. */
@@ -55,7 +58,7 @@ function place(over: Record<string, unknown> = {}) {
 function stub(reply: unknown | ((callNumber: number) => unknown)) {
   const calls: Call[] = []
   const fetch = async (url: string, init: RequestInit): Promise<Response> => {
-    const body = JSON.parse(String(init.body ?? '{}')) as { textQuery?: string; pageSize?: number }
+    const body = JSON.parse(String(init.body ?? '{}')) as { textQuery?: string; pageSize?: number; languageCode?: string }
     const headers = (init.headers ?? {}) as Record<string, string>
     calls.push({
       url,
@@ -63,6 +66,7 @@ function stub(reply: unknown | ((callNumber: number) => unknown)) {
       pageSize: body.pageSize ?? 0,
       fieldMask: headers['X-Goog-FieldMask'] ?? '',
       apiKey: headers['X-Goog-Api-Key'] ?? '',
+      languageCode: body.languageCode ?? '',
     })
     const payload = typeof reply === 'function'
       ? (reply as (n: number) => unknown)(calls.length)
@@ -311,6 +315,71 @@ check('an exact match is still confirmed',
 check('a prefix match is needs_check too — Google offering a longer name is a guess',
   locationFrom(cluster(['caption', 'transcript']), prefixHit).status === 'needs_check')
 check('a prefix match is low confidence', confidenceFor(cluster(['caption', 'transcript']), prefixHit) === 'low')
+
+// --- scripts, form words and names broader than the destination -------------
+// Every case below reproduces a failure seen on a real bilingual reel.
+console.log('\n\x1b[1mSCRIPTS, FORM WORDS, BROADER NAMES\x1b[0m')
+
+check('a Japanese name is looked up in Japanese', languageFor('父島') === 'ja', languageFor('父島'))
+check('kana decides Japanese outright', languageFor('恵比寿のカフェ') === 'ja')
+check('a Latin name stays English', languageFor('Chichijima') === 'en')
+check('Hangul is Korean', languageFor('명동') === 'ko')
+check('Han characters follow a Chinese destination', languageFor('北京烤鸭', 'Beijing, China') === 'zh')
+
+{
+  // Asked in English, Google answered "Chichi-jima" for 父島 and the name check
+  // could never match it. Asked in Japanese, it answers in Japanese.
+  const s = stub({ places: [place({ displayName: { text: '父島' }, types: ['island', 'natural_feature'] })] })
+  const found = await geocode('父島', opts(s.fetch, { destination: 'Japan' }))
+  check('...and a Japanese answer to a Japanese query is confirmed', found?.match === 'exact', found?.match ?? 'null')
+  check('the request actually carried languageCode ja', s.calls[0]?.languageCode === 'ja', s.calls[0]?.languageCode)
+}
+
+check('a form word Google appends is not a different place',
+  gradeMatch('Kozushima', 'Kozushima Village') === 'strong'
+  && gradeMatch('Yuhigaura', 'Yuhigaura Beach') === 'strong'
+  && gradeMatch('Shinjuku', 'Shinjuku City') === 'strong')
+check('...on either side, hyphens and all',
+  gradeMatch('Chihaya-Akasaka Village', 'Chihayaakasaka') === 'strong',
+  gradeMatch('Chihaya-Akasaka Village', 'Chihayaakasaka'))
+check('...and in Japanese', gradeMatch('神津島', '神津島村') === 'strong', gradeMatch('神津島', '神津島村'))
+check('a FACILITY word still blocks: "Ultraman" is not "ULTRAMAN STREET"',
+  gradeMatch('Ultraman', 'ULTRAMAN STREET') !== 'strong' && gradeMatch('Ultraman', 'ULTRAMAN STREET') !== 'exact',
+  gradeMatch('Ultraman', 'ULTRAMAN STREET'))
+check('a bare form word is not a place', gradeMatch('Beach', 'Kelingking Beach') !== 'strong')
+
+{
+  // "Japan" scoped by the destination became "Japan, Tokyo", which Google
+  // answers with Tokyo. The bare retry finds the country — and a country is
+  // unique worldwide, so it may be trusted.
+  const s = stub((n: number) => n === 1
+    ? { places: [place({ id: 'ChIJtokyo', displayName: { text: 'Tokyo' }, types: ['administrative_area_level_1', 'political'] })] }
+    : { places: [place({ id: 'ChIJjapan', displayName: { text: 'Japan' }, types: ['country', 'political'] })] })
+  const found = await geocode('Japan', opts(s.fetch, { destination: 'Tokyo' }))
+  check('a name broader than the destination is retried unscoped', s.calls.length === 2,
+    s.calls.map((c) => c.textQuery).join(' | '))
+  check('...and a country found that way is trusted', found?.canonicalName === 'Japan' && found?.match === 'exact',
+    `${found?.canonicalName}/${found?.match}`)
+}
+
+{
+  // The danger of a bare query: "Blue Lagoon" without "Malta" may well be the
+  // Icelandic one. A non-region found unscoped is only ever a suggestion.
+  const s = stub((n: number) => n === 1
+    ? {}
+    : { places: [place({ displayName: { text: 'Blue Lagoon' }, types: ['natural_feature'] })] })
+  const found = await geocode('Blue Lagoon', opts(s.fetch, { destination: 'Malta' }))
+  check('a non-region found only by the bare retry is downgraded to a suggestion',
+    found?.match === 'loose', found?.match ?? 'null')
+  check('...so it reaches you as needs_check, not a pin',
+    locationFrom(cluster(['caption', 'transcript']), found).status === 'needs_check')
+}
+
+{
+  const s = stub({ places: [place()] })
+  await geocode('Kelingking Beach', opts(s.fetch, { destination: 'Bali' }))
+  check('a confident scoped answer costs no second request', s.calls.length === 1, String(s.calls.length))
+}
 
 console.log(failures === 0 ? '\n\x1b[32mall good\x1b[0m' : `\n\x1b[31m${failures} failed\x1b[0m`)
 process.exit(failures === 0 ? 0 : 1)

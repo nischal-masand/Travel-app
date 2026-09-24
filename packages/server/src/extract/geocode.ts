@@ -167,14 +167,97 @@ function toHit(place: NonNullable<SearchTextResponse['places']>[number]): Omit<G
   }
 }
 
+// ---------------------------------------------------------------------------
+// Language, form words and regions
+// ---------------------------------------------------------------------------
+
+const KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/u
+const HANGUL = /\p{Script=Hangul}/u
+const THAI = /\p{Script=Thai}/u
+const HAN = /\p{Script=Han}/u
+
+/**
+ * Ask Google in the language the name is written in.
+ *
+ * Asking in English for "父島" gets back "Chichi-jima" — the right island, in a
+ * script the name check can never match, so every Japanese-script name on a
+ * bilingual caption failed. Asked in Japanese, Google answers "父島".
+ *
+ * Han characters alone are ambiguous between Japanese and Chinese; the
+ * destination decides, and Japanese is the default. Google's text search still
+ * finds a Chinese place under a Japanese language code — the code only changes
+ * which name it hands back.
+ */
+export function languageFor(name: string, destination?: string | null): string {
+  if (KANA.test(name)) return 'ja'
+  if (HANGUL.test(name)) return 'ko'
+  if (THAI.test(name)) return 'th'
+  if (HAN.test(name)) {
+    const d = (destination ?? '').toLowerCase()
+    return /china|taiwan|hong kong|macau|beijing|shanghai|taipei|中国|台湾|香港/.test(d) ? 'zh' : 'ja'
+  }
+  return 'en'
+}
+
+/**
+ * Words that name the FORM of a place rather than a different place: a village
+ * called Kozushima is Kozushima. Google appends them freely ("Kozushima
+ * Village", "Yuhigaura Beach", "Shinjuku City"), and without this each of those
+ * right answers was held back as a loose match.
+ *
+ * Deliberately absent: street, road, station, store, shop, cafe, bar, hotel.
+ * Those name a NEW thing that merely shares a word — "ULTRAMAN STREET" is not
+ * Ultraman — so they must keep blocking a confident match. 島 (island) is also
+ * absent: it is part of the name itself in 父島 and 神津島.
+ */
+const FORM_SUFFIX = /[\s-]*(?:village|town|city|ward|island|islands|isle|beach|bay|lake|falls|村|町|市|区)$/iu
+
+function withoutFormSuffix(name: string): string {
+  const stripped = name.trim().replace(FORM_SUFFIX, '').trim()
+  const letters = normalizeForMatch(stripped).replace(/[^\p{L}\p{N}]/gu, '')
+  return letters.length >= 2 ? stripped : name.trim()
+}
+
+/** matchStrength, but tolerant of a form word on either side. */
+export function gradeMatch(queried: string, googleName: string): MatchStrength {
+  const direct = matchStrength(queried, googleName)
+  if (direct === 'exact' || direct === 'strong') return direct
+  const bare = matchStrength(withoutFormSuffix(queried), withoutFormSuffix(googleName))
+  return bare === 'exact' || bare === 'strong' ? 'strong' : direct
+}
+
+/**
+ * Google's labels for places that CONTAIN a trip rather than being a stop on
+ * it — checked against the live API: "Japan" is `country`, "Tokyo" and "Bali"
+ * are `administrative_area_level_1`. `locality` is deliberately excluded: Kyoto,
+ * Ubud and Shinjuku are locality, and in a multi-city trip they are stops.
+ */
+const REGION_TYPES = new Set(['country', 'administrative_area_level_1'])
+
+export function isRegion(types: string[] | undefined): boolean {
+  return (types ?? []).some((t) => REGION_TYPES.has(t))
+}
+
+const RANK: Record<MatchStrength, number> = { exact: 3, strong: 2, prefix: 1, loose: 1, none: 0 }
+const confident = (h: GeocodeHit | null) => h !== null && (h.match === 'exact' || h.match === 'strong')
+
+// ---------------------------------------------------------------------------
+// Lookup
+// ---------------------------------------------------------------------------
+
 /**
  * Resolve one name against Google Places.
  *
- * Returns `null` when nothing matched — that is a real answer, and the caller
- * must render it as `needs_check`. A thrown error is a different thing: it
- * means the lookup never happened (no key, API down, network gone), which is
- * not evidence about the place, so callers should surface it as an outage
- * rather than as an unverified place.
+ * Returns `null` when nothing matched — a real answer, which the caller must
+ * render as `needs_check`. A thrown error is different: the lookup never
+ * happened (no key, API down), which is not evidence about the place.
+ *
+ * Scoped first, then bare. Scoping by destination stops "Blue Lagoon" landing
+ * in Iceland when the reel was about Malta — but breaks any name BROADER than
+ * the destination: "Japan, Tokyo" comes back as Tokyo. So a scoped miss gets
+ * one unscoped retry, and because a bare query has lost its disambiguation,
+ * only a country or first-level region (unique worldwide) is trusted from it.
+ * Anything else found that way is offered as a suggestion, never confirmed.
  */
 export async function geocode(
   name: string,
@@ -184,14 +267,34 @@ export async function geocode(
   const trimmed = name.trim()
   if (!trimmed) return null
 
-  const query = queryFor(trimmed, opts.destination)
+  const lang = opts.languageCode ?? languageFor(trimmed, opts.destination)
+  const scopedQuery = queryFor(trimmed, opts.destination)
+  const scoped = await cachedLookup(trimmed, scopedQuery, lang, opts, onRetry)
+  if (confident(scoped) || scopedQuery === trimmed) return scoped
+
+  let bare = await cachedLookup(trimmed, trimmed, lang, opts, onRetry)
+  if (bare && confident(bare) && !isRegion(bare.types)) bare = { ...bare, match: 'loose' }
+  if (!bare) return scoped
+  if (!scoped) return bare
+  return RANK[bare.match] > RANK[scoped.match] ? bare : scoped
+}
+
+function cachedLookup(
+  name: string,
+  query: string,
+  lang: string,
+  opts: GeocodeOpts,
+  onRetry?: OnRetry,
+): Promise<GeocodeHit | null> {
   const cache = opts.cache ?? defaultCache
-  const key = normalizeForMatch(query)
+  // Language is part of the question: one query in two languages returns two
+  // different names, and only one of them can match.
+  const key = `${lang}|${normalizeForMatch(query)}`
 
   const cached = cache.byQuery.get(key)
   if (cached) return cached
 
-  const pending = lookup(trimmed, query, opts, onRetry)
+  const pending = lookup(name, query, lang, opts, onRetry)
     .then((hit) => (hit ? dedupe(cache, hit) : null))
 
   cache.byQuery.set(key, pending)
@@ -212,6 +315,7 @@ function dedupe(cache: GeocodeCache, hit: GeocodeHit): GeocodeHit {
 async function lookup(
   name: string,
   query: string,
+  lang: string,
   opts: GeocodeOpts,
   onRetry?: OnRetry,
 ): Promise<GeocodeHit | null> {
@@ -229,7 +333,7 @@ async function lookup(
         },
         body: JSON.stringify({
           textQuery: query,
-          languageCode: opts.languageCode ?? 'en',
+          languageCode: lang,
           pageSize: MAX_CANDIDATES,
         }),
         signal: AbortSignal.timeout(20_000),
@@ -253,29 +357,25 @@ async function lookup(
 
   // Google always answers something, and for an invented cafe that something is
   // a real, nearby, differently-named business. Accepting it would launder a
-  // hallucination into a verified pin with coordinates.
-  //
-  // But rejecting outright is also wrong: Google answers "Shinjuku Golden-Gai"
-  // for "Golden Gai", which is plainly the same district. So grade the match
-  // and keep the best one — a weak match still reaches you, flagged, rather
-  // than being thrown away or dressed up as confirmed.
+  // hallucination into a verified pin. So every candidate is graded against the
+  // queried name; a weak match still reaches you, flagged, rather than being
+  // thrown away or dressed up as confirmed.
   let best: GeocodeHit | null = null
 
   for (const candidate of candidates.slice(0, MAX_CANDIDATES)) {
     const hit = toHit(candidate)
     if (!hit) continue
 
-    const match = matchStrength(name, hit.canonicalName)
+    const match = gradeMatch(name, hit.canonicalName)
     if (match === 'none') continue
     if (match === 'exact' || match === 'strong') return { ...hit, match }
     // 'prefix'/'loose' — one shared token, like "Ultraman" answered with
-    // "ULTRAMAN STREET". Hold it in case nothing better turns up, but it will
-    // reach the user as needs_check rather than as a confirmed pin.
+    // "ULTRAMAN STREET". Held in case nothing better turns up; reaches the user
+    // as needs_check, never as a confirmed pin.
     best ??= { ...hit, match }
   }
 
   return best
-  return null
 }
 
 // ---------------------------------------------------------------------------
